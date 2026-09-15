@@ -6,6 +6,7 @@ import Schema from "@deepseek-ai/schemastery";
 export interface Config {
   libraryRoot: string;
   dataDir: string;
+  skippableSteps: string[];
 }
 
 export function defaultLibraryRoot(): string {
@@ -35,6 +36,7 @@ export function expandHomePath(path: string, home = homedir()): string {
 export const Config: Schema<Config> = Schema.object({
   libraryRoot: Schema.string().default(defaultLibraryRoot()),
   dataDir: Schema.string().default(defaultDataDir()),
+  skippableSteps: Schema.array(Schema.string()).default([]),
 });
 
 export function resolveDataDir(config: Config): string {

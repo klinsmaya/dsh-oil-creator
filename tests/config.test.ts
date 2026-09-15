@@ -23,6 +23,7 @@ describe("portable config defaults", () => {
     expect(resolveDataDir({
       libraryRoot: defaultLibraryRoot(),
       dataDir: "",
+      skippableSteps: [],
     })).toBe(defaultDataDir());
   });
 

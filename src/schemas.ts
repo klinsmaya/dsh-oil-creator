@@ -1,5 +1,46 @@
 import { z } from "zod";
 
+export const stepIdSchema = z.enum([
+  "S1-00",
+  "S1-01",
+  "S1-02",
+  "S1-03",
+  "S2-01",
+  "S2-02",
+  "S2-03",
+  "S3-01",
+  "S3-02",
+  "S3-03",
+  "S3-04",
+]);
+
+export const chapterIdSchema = z.union([z.literal(1), z.literal(2), z.literal(3)]);
+
+export const stepStateSchema = z.enum([
+  "todo",
+  "current",
+  "final",
+  "skipped",
+  "reopened",
+  "needsReview",
+]);
+
+export const projectStageSchema = z.union([
+  chapterIdSchema,
+  z.literal("closing"),
+  z.literal("done"),
+]);
+
+export const stepSummarySchema = z.object({
+  id: stepIdSchema,
+  name: z.string(),
+  file: z.string(),
+  chapter: chapterIdSchema,
+  state: stepStateSchema,
+  skippable: z.boolean(),
+  hint: z.string(),
+});
+
 export const projectSummarySchema = z.object({
   id: z.string().min(1),
   folderPath: z.string().min(1),
@@ -7,6 +48,19 @@ export const projectSummarySchema = z.object({
   date: z.string().optional(),
   createdMs: z.number(),
   updatedAt: z.string(),
+  stage: projectStageSchema,
+  currentStep: stepIdSchema.optional(),
+  currentStepName: z.string().optional(),
+  progressLine: z.string(),
+  pill: z.string(),
+  pillTone: z.enum(["pending", "success", "warning"]),
+  pendingCount: z.number(),
+  blockingCount: z.number(),
+  signed: z.object({
+    by: z.string(),
+    at: z.string(),
+  }).optional(),
+  steps: z.array(stepSummarySchema),
 });
 
 export const librarySettingsSchema = z.object({
