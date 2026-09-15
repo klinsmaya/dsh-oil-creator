@@ -20,6 +20,10 @@ describe("handwritten TYPERT", () => {
       "setLibraryRoot",
       "refreshCatalog",
       "openFolder",
+      "projectDetail",
+      "readFile",
+      "listMaterials",
+      "setSkippableSteps",
     ]);
     for (const item of DINGZE_INVOCATIONS) {
       expect(item.service).toBe(REMOTE_NAMESPACE);

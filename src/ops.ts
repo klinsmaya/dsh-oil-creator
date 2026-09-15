@@ -3,6 +3,7 @@ import { basename, dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import {
+  createProjectFolder,
   FINAL_DIR,
   HISTORY_DIR,
   listFinalFiles,
@@ -15,7 +16,7 @@ import {
   withOverlayLock,
 } from "./overlay.ts";
 import { resolveProjectSummary } from "./service.ts";
-import { isStepId, stepById, STEPS, type SkippableOverride, type StepId } from "./steps.ts";
+import { isSkippable, isStepId, stepById, STEPS, type SkippableOverride, type StepId } from "./steps.ts";
 import type {
   OverlayProject,
   OverlayStore,
@@ -407,5 +408,138 @@ export async function mutatePending(
     host.onWrite?.();
     return ok({ action, pending: sortPending(project.pending), changed: found });
   });
+}
+
+export const STEP_NOT_SKIPPABLE = "step_not_skippable";
+export const ALREADY_FINAL = "already_final";
+export const NOT_READY = "not_ready";
+export const COMPANY_REQUIRED = "company_required";
+
+export async function createProject(
+  host: OpsHost,
+  options: {
+    company: string;
+    sessionId?: string;
+    now?: Date;
+  },
+): Promise<ToolSuccess<{ id: string; folderPath: string; project: ProjectSummary }> | ToolFailure> {
+  const company = options.company.trim();
+  if (company === "") return fail(COMPANY_REQUIRED, "新建项目需要公司名。");
+  return withOverlayLock(host.dataDir, async () => {
+    const store = await loadOverlay(host.dataDir);
+    const libraryRoot = store.libraryRoot ?? host.libraryRoot;
+    const created = await createProjectFolder(libraryRoot, company, options.now ?? new Date());
+    const project = ensureOverlayProject(store, created.id, options.now ?? new Date());
+    if (options.sessionId !== undefined && options.sessionId.length > 0) {
+      if (!project.sessionIds.includes(options.sessionId)) {
+        project.sessionIds.push(options.sessionId);
+      }
+    }
+    project.updatedAt = (options.now ?? new Date()).toISOString();
+    await saveOverlay(host.dataDir, store);
+    host.onWrite?.();
+    const summary = await refreshSummary(host, store, libraryRoot, created.id);
+    return ok({ id: created.id, folderPath: created.folderPath, project: summary });
+  });
+}
+
+export async function skipStep(
+  host: OpsHost,
+  options: ProjectScope & { step: string; reason?: string; now?: Date },
+): Promise<ToolSuccess<{ step: StepId; stepName: string; project: ProjectSummary }> | ToolFailure> {
+  if (!isStepId(options.step)) return fail(UNKNOWN_STEP, "没有这一步。", { step: options.step });
+  const def = stepById(options.step);
+  if (def === undefined) return fail(UNKNOWN_STEP, "没有这一步。", { step: options.step });
+  return withOverlayLock(host.dataDir, async () => {
+    const loaded = await loadProject(host, options);
+    if (isFailure(loaded)) return loaded;
+    if (!isSkippable(def.id, host.skippableOverride)) {
+      return fail(STEP_NOT_SKIPPABLE, `「${def.name}」不能跳过。`, { step: def.id });
+    }
+    const files = await listFinalFiles(loaded.summary.folderPath);
+    if (files.has(def.file)) {
+      return fail(ALREADY_FINAL, `「${def.name}」已经定版，不能跳过。`, { step: def.id });
+    }
+    const reason = options.reason?.trim() || "待补";
+    loaded.project.skipped[def.id] = { reason, at: (options.now ?? new Date()).toISOString() };
+    loaded.project.updatedAt = (options.now ?? new Date()).toISOString();
+    await saveOverlay(host.dataDir, loaded.store);
+    host.onWrite?.();
+    return ok({
+      step: def.id,
+      stepName: def.name,
+      project: await refreshSummary(host, loaded.store, loaded.libraryRoot, loaded.summary.id),
+    });
+  });
+}
+
+export async function reopenStep(
+  host: OpsHost,
+  options: ProjectScope & { step: string; reason?: string; now?: Date },
+): Promise<ToolSuccess<{ step: StepId; stepName: string; project: ProjectSummary }> | ToolFailure> {
+  if (!isStepId(options.step)) return fail(UNKNOWN_STEP, "没有这一步。", { step: options.step });
+  const def = stepById(options.step);
+  if (def === undefined) return fail(UNKNOWN_STEP, "没有这一步。", { step: options.step });
+  return withOverlayLock(host.dataDir, async () => {
+    const loaded = await loadProject(host, options);
+    if (isFailure(loaded)) return loaded;
+    const now = (options.now ?? new Date()).toISOString();
+    loaded.project.reopened[def.id] = {
+      reason: options.reason?.trim() || "改版",
+      at: now,
+    };
+    const files = await listFinalFiles(loaded.summary.folderPath);
+    for (const step of STEPS) {
+      if (step.order <= def.order) continue;
+      if (!files.has(step.file)) continue;
+      loaded.project.needsReview[step.id] = { because: def.id, at: now };
+    }
+    loaded.project.updatedAt = now;
+    await saveOverlay(host.dataDir, loaded.store);
+    host.onWrite?.();
+    return ok({
+      step: def.id,
+      stepName: def.name,
+      project: await refreshSummary(host, loaded.store, loaded.libraryRoot, loaded.summary.id),
+    });
+  });
+}
+
+export async function signProject(
+  host: OpsHost,
+  options: ProjectScope & { by?: string; now?: Date },
+): Promise<ToolSuccess<{ project: ProjectSummary }> | ToolFailure> {
+  return withOverlayLock(host.dataDir, async () => {
+    const loaded = await loadProject(host, options);
+    if (isFailure(loaded)) return loaded;
+    const files = await listFinalFiles(loaded.summary.folderPath);
+    const contract = STEPS.find((step) => step.id === "S3-04");
+    const ready = loaded.summary.steps.every((step) => step.state === "final" || step.state === "skipped")
+      && contract !== undefined
+      && files.has(contract.file);
+    if (!ready) {
+      return fail(NOT_READY, "还不能签约。先把定三责走完，并写好责任书。");
+    }
+    loaded.project.signed = {
+      by: options.by?.trim() || "已签",
+      at: (options.now ?? new Date()).toISOString(),
+    };
+    loaded.project.updatedAt = loaded.project.signed.at;
+    await saveOverlay(host.dataDir, loaded.store);
+    host.onWrite?.();
+    return ok({
+      project: await refreshSummary(host, loaded.store, loaded.libraryRoot, loaded.summary.id),
+    });
+  });
+}
+
+export function guideText(libraryRoot: string): string {
+  return [
+    "定责工作台帮经营团队按定战略责、定目标责、定行动责走完定责。",
+    `项目库在 ${libraryRoot}。每个公司一个文件夹，里面有 定版/ 和 材料/。`,
+    "开场先 dz_status。定版用 dz_finalize：先预览，用户点头后再 apply=true。",
+    "待补用 dz_pending，跳过用 dz_skip，改版用 dz_reopen，签约用 dz_sign。",
+    "侧栏只显示人话名。当前步用定版 / 改版 / 标待补推进。",
+  ].join("\n");
 }
 

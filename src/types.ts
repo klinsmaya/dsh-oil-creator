@@ -32,6 +32,7 @@ export interface OverlayProject {
 export interface OverlayStore {
   version: 1;
   libraryRoot?: string;
+  skippableSteps?: string[];
   projects: Record<string, OverlayProject>;
 }
 
@@ -79,6 +80,7 @@ export interface DingzeCapabilities {
 
 export interface LibrarySettings {
   libraryRoot: string;
+  skippableSteps: string[];
 }
 
 export interface DingzeSetupStatus {
@@ -104,6 +106,34 @@ export interface SetLibraryRootRequest {
 
 export interface OpenFolderRequest {
   path: string;
+}
+
+export interface ProjectIdRequest {
+  id: string;
+}
+
+export interface ReadFileRequest {
+  id: string;
+  path: string;
+}
+
+export interface ReadFileResult {
+  path: string;
+  content: string;
+}
+
+export interface MaterialItem {
+  name: string;
+  path: string;
+}
+
+export interface ListMaterialsResult {
+  items: MaterialItem[];
+}
+
+export interface ProjectDetail {
+  project: ProjectSummary;
+  pending: PendingItem[];
 }
 
 export interface ToolFailure {

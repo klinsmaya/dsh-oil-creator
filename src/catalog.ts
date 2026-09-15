@@ -1,4 +1,4 @@
-import { readdir, stat } from "node:fs/promises";
+import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { emptyOverlayProject } from "./overlay.ts";
@@ -84,6 +84,33 @@ export function projectIdUnderLibrary(cwd: string, libraryRoot: string): string 
   if (rel === "") return undefined;
   const first = rel.split(sep)[0];
   return first === undefined || first === "" ? undefined : first;
+}
+
+export async function createProjectFolder(
+  libraryRoot: string,
+  company: string,
+  now = new Date(),
+): Promise<{ id: string; folderPath: string }> {
+  const root = await stat(libraryRoot).catch(() => undefined);
+  if (root === undefined || !root.isDirectory()) {
+    await mkdir(libraryRoot, { recursive: true });
+  }
+  const base = folderNameForCompany(company, now);
+  let id = base;
+  let suffix = 2;
+  while (true) {
+    const folderPath = join(libraryRoot, id);
+    const exists = await stat(folderPath).then(() => true, () => false);
+    if (!exists) {
+      await mkdir(folderPath, { recursive: true });
+      await mkdir(join(folderPath, FINAL_DIR), { recursive: true });
+      await mkdir(join(folderPath, MATERIAL_DIR), { recursive: true });
+      await writeFile(join(folderPath, AGENTS_FILE), `# ${readableCompany(company)}\n\n定版文件放在 定版/，补充材料放在 材料/。\n`, "utf8");
+      return { id, folderPath };
+    }
+    id = `${base}-${suffix}`;
+    suffix += 1;
+  }
 }
 
 export async function listFinalFiles(folderPath: string): Promise<Set<string>> {

@@ -6,6 +6,11 @@ import type {} from "@deepseek-ai/dsh-client-ui-settings-plugins/client";
 import type { DingzeCapabilities } from "../types.ts";
 import type { DingzeViewFace } from "./face.ts";
 import type { DingzeKey } from "./locales.ts";
+import {
+  browserDingzeStorage,
+  loadDingzeUiState,
+  saveDingzeUiState,
+} from "./persistence.ts";
 import { ActionBar, ActionButton } from "./ui/ActionButton.tsx";
 import { StatusPill, type StatusTone } from "./ui/StatusPill.tsx";
 import "./CreatorSettingsCard.css";
@@ -14,7 +19,7 @@ export type CreatorSettingsCardProps =
   & PropsRuntime<"settings.plugin.item">
   & PropsLocale<"dsh.dingze">
   & InjectFace<
-    Pick<DingzeViewFace, "ready" | "getSettings" | "getCapabilities" | "setLibraryRoot" | "pickDirectory">
+    Pick<DingzeViewFace, "ready" | "getSettings" | "getCapabilities" | "setLibraryRoot" | "setSkippableSteps" | "pickDirectory">
   >;
 
 function capabilityTone(state: DingzeCapabilities["library"]["state"]): StatusTone {
@@ -26,17 +31,21 @@ export function CreatorSettingsCard({
   ready,
   getSettings,
   setLibraryRoot,
+  setSkippableSteps,
   pickDirectory,
   getCapabilities,
 }: CreatorSettingsCardProps) {
   const [open, setOpen] = useState(false);
   const [savedRoot, setSavedRoot] = useState("");
   const [draftRoot, setDraftRoot] = useState("");
+  const [savedSkip, setSavedSkip] = useState("");
+  const [draftSkip, setDraftSkip] = useState("");
+  const [autoOpen, setAutoOpen] = useState(true);
   const [capabilities, setCapabilities] = useState<DingzeCapabilities | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | undefined>(undefined);
 
-  const dirty = draftRoot !== savedRoot;
+  const dirty = draftRoot !== savedRoot || draftSkip !== savedSkip;
 
   useEffect(() => {
     if (!ready()) return;
@@ -45,6 +54,10 @@ export function CreatorSettingsCard({
         const settings = await getSettings();
         setSavedRoot(settings.libraryRoot);
         setDraftRoot(settings.libraryRoot);
+        const skip = settings.skippableSteps.join(", ");
+        setSavedSkip(skip);
+        setDraftSkip(skip);
+        setAutoOpen(loadDingzeUiState(browserDingzeStorage()).autoOpenInspector);
         setCapabilities(await getCapabilities());
       } catch {
         setMessage(t("settings.saveFailed"));
@@ -63,8 +76,11 @@ export function CreatorSettingsCard({
     setBusy(true);
     setMessage(undefined);
     try {
-      await setLibraryRoot(draftRoot);
+      if (draftRoot !== savedRoot) await setLibraryRoot(draftRoot);
+      const steps = draftSkip.split(",").map((item) => item.trim()).filter((item) => item.length > 0);
+      if (draftSkip !== savedSkip) await setSkippableSteps(steps);
       setSavedRoot(draftRoot);
+      setSavedSkip(draftSkip);
       setCapabilities(await getCapabilities());
       setMessage(t("settings.saved"));
     } catch {
@@ -104,6 +120,28 @@ export function CreatorSettingsCard({
               <ActionButton onClick={() => { void onPick(); }}>{t("settings.pick")}</ActionButton>
             </div>
           </label>
+          <label className="field">
+            <span className="fieldLabel">{t("settings.skippable")}</span>
+            <span className="fieldHint">{t("settings.skippableHint")}</span>
+            <input
+              className="path"
+              value={draftSkip}
+              onChange={(event) => { setDraftSkip(event.target.value); }}
+            />
+          </label>
+          <label className="field">
+            <span className="fieldLabel">{t("settings.autoOpen")}</span>
+            <input
+              type="checkbox"
+              checked={autoOpen}
+              onChange={(event) => {
+                const next = event.target.checked;
+                setAutoOpen(next);
+                const state = loadDingzeUiState(browserDingzeStorage());
+                saveDingzeUiState(browserDingzeStorage(), { ...state, autoOpenInspector: next });
+              }}
+            />
+          </label>
           {capabilities !== undefined && (
             <div className="field">
               <span className="fieldLabel">{t("settings.capabilities")}</span>
@@ -126,6 +164,7 @@ export function CreatorSettingsCard({
               disabled={!dirty || busy}
               onClick={() => {
                 setDraftRoot(savedRoot);
+                setDraftSkip(savedSkip);
                 setMessage(undefined);
               }}
             >

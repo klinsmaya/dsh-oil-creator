@@ -1,6 +1,16 @@
 import { defineTool, type ToolDefinition, type ToolRunContext } from "@deepseek-ai/dsh-tools";
 
-import { compactScope, finalizeStep, mutatePending, projectStatus } from "./ops.ts";
+import {
+  compactScope,
+  createProject,
+  finalizeStep,
+  guideText,
+  mutatePending,
+  projectStatus,
+  reopenStep,
+  signProject,
+  skipStep,
+} from "./ops.ts";
 import type { DingzeService } from "./service.ts";
 
 interface ToolsContext {
@@ -161,5 +171,120 @@ export function registerDingzeTools(ctx: ToolsContext, service: DingzeService): 
         ...(args.when === undefined ? {} : { when: args.when }),
       }));
     },
+  }));
+
+  ctx.tools.register(defineTool({
+    name: "dz_create_project",
+    description: "按公司名新建定责项目文件夹，并绑定当前会话。公司名必填。",
+    parameters: {
+      company: { type: "string", required: true, description: "公司名。" },
+    },
+    output: {
+      schema: JSON_VALUE,
+      render: (_args, value) => {
+        const result = value as { ok?: boolean; project?: { company?: string }; code?: string };
+        if (result.ok !== true) return compactText("Create", result.code ?? "failed");
+        return compactText("Create", result.project?.company ?? "ok");
+      },
+    },
+    presentCall: (args) => present("新建定责项目", args),
+    async execute(args, exec) {
+      const sessionId = scopeOf(exec).sessionId;
+      return asJson(await createProject(hostOf(service), {
+        company: args.company ?? "",
+        ...(sessionId === undefined ? {} : { sessionId }),
+      }));
+    },
+  }));
+
+  ctx.tools.register(defineTool({
+    name: "dz_skip",
+    description: "跳过可跳过的步骤，并记下原因。不可跳过返回 step_not_skippable；已定版返回 already_final。",
+    parameters: {
+      step: { type: "string", required: true, description: "步骤编号。" },
+      reason: { type: "string", description: "跳过原因，默认待补。" },
+      project: { type: "string", description: "项目文件夹名、公司名或路径。" },
+    },
+    output: {
+      schema: JSON_VALUE,
+      render: (_args, value) => {
+        const result = value as { ok?: boolean; stepName?: string; code?: string };
+        if (result.ok !== true) return compactText("Skip", result.code ?? "failed");
+        return compactText("Skip", `跳过 · ${result.stepName ?? "待补"}`);
+      },
+    },
+    presentCall: (args) => present("跳过", args),
+    async execute(args, exec) {
+      const scope = scopeOf(exec);
+      return asJson(await skipStep(hostOf(service), {
+        step: args.step ?? "",
+        ...compactScope({ project: args.project, cwd: scope.cwd, sessionId: scope.sessionId }),
+        ...(args.reason === undefined ? {} : { reason: args.reason }),
+      }));
+    },
+  }));
+
+  ctx.tools.register(defineTool({
+    name: "dz_reopen",
+    description: "把已定版的一步标成改版中，并给下游已定版步骤记上需复核。用户明确要改版时才调用。",
+    parameters: {
+      step: { type: "string", required: true, description: "步骤编号。" },
+      reason: { type: "string", description: "改版原因。" },
+      project: { type: "string", description: "项目文件夹名、公司名或路径。" },
+    },
+    output: {
+      schema: JSON_VALUE,
+      render: (_args, value) => {
+        const result = value as { ok?: boolean; stepName?: string; code?: string };
+        if (result.ok !== true) return compactText("Reopen", result.code ?? "failed");
+        return compactText("Reopen", result.stepName ?? "ok");
+      },
+    },
+    presentCall: (args) => present("改版", args),
+    async execute(args, exec) {
+      const scope = scopeOf(exec);
+      return asJson(await reopenStep(hostOf(service), {
+        step: args.step ?? "",
+        ...compactScope({ project: args.project, cwd: scope.cwd, sessionId: scope.sessionId }),
+        ...(args.reason === undefined ? {} : { reason: args.reason }),
+      }));
+    },
+  }));
+
+  ctx.tools.register(defineTool({
+    name: "dz_sign",
+    description: "责任书签约。只有全部步骤已定版或跳过、且责任书文件存在时才能签，否则 not_ready。",
+    parameters: {
+      by: { type: "string", description: "签约人。" },
+      project: { type: "string", description: "项目文件夹名、公司名或路径。" },
+    },
+    output: {
+      schema: JSON_VALUE,
+      render: (_args, value) => {
+        const result = value as { ok?: boolean; project?: { stage?: string }; code?: string };
+        if (result.ok !== true) return compactText("Sign", result.code ?? "failed");
+        return compactText("Sign", result.project?.stage === "done" ? "已收官" : "ok");
+      },
+    },
+    presentCall: (args) => present("签约", args),
+    async execute(args, exec) {
+      const scope = scopeOf(exec);
+      return asJson(await signProject(hostOf(service), {
+        ...compactScope({ project: args.project, cwd: scope.cwd, sessionId: scope.sessionId }),
+        ...(args.by === undefined ? {} : { by: args.by }),
+      }));
+    },
+  }));
+
+  ctx.tools.register(defineTool({
+    name: "dz_guide",
+    description: "工作台用法。用户问这个插件做什么、怎么用，或你不确定下一步时调用。",
+    parameters: {},
+    output: {
+      schema: JSON_VALUE,
+      render: () => compactText("Guide", "定责工作台"),
+    },
+    presentCall: (args) => present("工作台用法", args),
+    execute: async () => asJson({ ok: true, text: guideText(service.libraryRoot) }),
   }));
 }

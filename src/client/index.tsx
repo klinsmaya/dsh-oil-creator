@@ -13,11 +13,22 @@ import { releaseShellChrome } from "./contentSelection.ts";
 import type {
   DingzeCapabilities,
   LibrarySettings,
+  ListMaterialsResult,
   ListProjectsResult,
+  ProjectDetail,
+  ReadFileResult,
 } from "../types.ts";
-import { bumpLibrary, bumpProfile } from "./contentSelection.ts";
-import { conversationInputOf } from "./conversationInput.ts";
+import {
+  bumpLibrary,
+  bumpProfile,
+  getSelectedContentId,
+  setSelectedContentId,
+  subscribeSelectedContentId,
+} from "./contentSelection.ts";
+import { conversationInputOf, draftOrSubmit } from "./conversationInput.ts";
 import { CreatorSettingsCard } from "./CreatorSettingsCard.tsx";
+import { DzInspector } from "./DzInspector.tsx";
+import { registerProjectTriggers } from "./projectTriggers.ts";
 import type { DingzeViewFace } from "./face.ts";
 import { en, NS, type DingzeKey, zh } from "./locales.ts";
 import { DzSidebarRoot } from "./sidebar/DzSidebarRoot.tsx";
@@ -46,8 +57,12 @@ interface DingzeRemote {
   getCapabilities: (request: Record<string, never>) => Promise<RemoteAnswer<{ capabilities: DingzeCapabilities }>>;
   getRevision: (request: Record<string, never>) => Promise<RemoteAnswer<{ revision: number }>>;
   setLibraryRoot: (request: { path: string }) => Promise<RemoteAnswer<LibrarySettings>>;
+  setSkippableSteps: (request: { skippableSteps: string[] }) => Promise<RemoteAnswer<LibrarySettings>>;
   refreshCatalog: (request: Record<string, never>) => Promise<RemoteAnswer<ListProjectsResult>>;
   openFolder: (request: { path: string }) => Promise<RemoteAnswer<Record<string, never>>>;
+  projectDetail: (request: { id: string }) => Promise<RemoteAnswer<ProjectDetail>>;
+  readFile: (request: { id: string; path: string }) => Promise<RemoteAnswer<ReadFileResult>>;
+  listMaterials: (request: { id: string }) => Promise<RemoteAnswer<ListMaterialsResult>>;
 }
 
 function unwrap<T>(answer: RemoteAnswer<T>, fallback: string): T {
@@ -101,6 +116,12 @@ export function apply(ctx: ClientContext): void {
       unwrap(await remote.setLibraryRoot({ path }), "set root failed");
       bumpLibrary();
     },
+    setSkippableSteps: async (steps) => {
+      const remote = remoteOf();
+      if (remote === undefined) throw new Error("remote unavailable");
+      unwrap(await remote.setSkippableSteps({ skippableSteps: steps }), "set skippable failed");
+      bumpLibrary();
+    },
     refreshCatalog: async () => {
       const remote = remoteOf();
       if (remote === undefined) throw new Error("remote unavailable");
@@ -113,9 +134,38 @@ export function apply(ctx: ClientContext): void {
       const input = conversationInputOf(conversation);
       input?.setDraft("新建定责项目：");
     },
+    projectDetail: async (id) => {
+      const remote = remoteOf();
+      if (remote === undefined) throw new Error("remote unavailable");
+      return unwrap(await remote.projectDetail({ id }), "detail failed");
+    },
+    readProjectFile: async (id, path) => {
+      const remote = remoteOf();
+      if (remote === undefined) throw new Error("remote unavailable");
+      return unwrap(await remote.readFile({ id, path }), "read failed");
+    },
+    listMaterials: async (id) => {
+      const remote = remoteOf();
+      if (remote === undefined) throw new Error("remote unavailable");
+      return unwrap(await remote.listMaterials({ id }), "materials failed");
+    },
+    talk: (text, mode) => {
+      const conversation = ctx.get("conversation");
+      draftOrSubmit(conversationInputOf(conversation), text, mode);
+    },
   });
 
   const contentFace = face();
+
+  ctx.effect(() => {
+    const triggers = ctx.get("inputTriggers") as
+      | Parameters<typeof registerProjectTriggers>[0]
+      | undefined;
+    return registerProjectTriggers(triggers, async () => {
+      const listed = await contentFace.listProjects("");
+      return listed.items.map((item) => ({ id: item.id, company: item.company }));
+    });
+  }, "dsh-dingze: triggers");
 
   const injectSidebar = (): DzSidebarInjected => ({
     startSession: (workspaceId?: WorkspaceId) => {
@@ -163,6 +213,38 @@ export function apply(ctx: ClientContext): void {
     }
     bumpProfile();
 
+    const stopOverlay = ctx.slots.inject("shell.overlay", () => {
+      let disposeOccupant: (() => void) | undefined;
+      const release = (): void => {
+        disposeOccupant?.();
+        disposeOccupant = undefined;
+      };
+      const sync = (): void => {
+        if (getSelectedContentId() === null) {
+          release();
+          return;
+        }
+        if (disposeOccupant !== undefined) return;
+        disposeOccupant = ctx.slots.register({
+          name: "shell.overlay",
+          id: "dingze-inspector",
+          order: 20,
+          locale: NS,
+          inject: () => ({
+            ...face(),
+            closeDetails: () => {
+              setSelectedContentId(null);
+            },
+          }),
+        }, DzInspector);
+      };
+      const stop = subscribeSelectedContentId(sync);
+      sync();
+      return () => {
+        stop();
+        release();
+      };
+    });
     const stopSettings = ctx.slots.inject("settings.plugin.item", () =>
       registerCreatorSettingsCard(
         ctx.slots as unknown as CompatibleSettingsSlots,
@@ -179,6 +261,7 @@ export function apply(ctx: ClientContext): void {
 
     return async () => {
       stopLive();
+      stopOverlay();
       stopSettings();
       await disposeRemote();
     };

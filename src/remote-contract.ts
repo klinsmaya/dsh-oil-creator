@@ -4,11 +4,17 @@ import { z } from "zod";
 import {
   capabilitiesResultSchema,
   librarySettingsSchema,
+  listMaterialsResultSchema,
   listProjectsRequestSchema,
   listProjectsResultSchema,
   openFolderRequestSchema,
+  projectDetailSchema,
+  projectIdRequestSchema,
+  readFileRequestSchema,
+  readFileResultSchema,
   revisionResultSchema,
   setLibraryRootRequestSchema,
+  setSkippableStepsRequestSchema,
 } from "./schemas.ts";
 
 export const PACKAGE_NAME = "dsh-dingze";
@@ -59,4 +65,8 @@ export const DINGZE_INVOCATIONS: readonly InvocationDescriptor[] = [
   invocation("setLibraryRoot", setLibraryRootRequestSchema, librarySettingsSchema),
   invocation("refreshCatalog", emptyObjectSchema, listProjectsResultSchema),
   invocation("openFolder", openFolderRequestSchema, emptyObjectSchema),
+  invocation("projectDetail", projectIdRequestSchema, projectDetailSchema),
+  invocation("readFile", readFileRequestSchema, readFileResultSchema),
+  invocation("listMaterials", projectIdRequestSchema, listMaterialsResultSchema),
+  invocation("setSkippableSteps", setSkippableStepsRequestSchema, librarySettingsSchema),
 ];

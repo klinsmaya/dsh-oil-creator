@@ -15,7 +15,7 @@ describe("dingze setup inspection", () => {
     const result = await inspectDingzeSetup({
       libraryRoot,
       dataDir: join(root, "data"),
-      settings: { libraryRoot },
+      settings: { libraryRoot, skippableSteps: [] },
       platform: "linux",
     });
 
@@ -30,7 +30,7 @@ describe("dingze setup inspection", () => {
     const result = await inspectDingzeSetup({
       libraryRoot,
       dataDir: join(root, "data"),
-      settings: { libraryRoot },
+      settings: { libraryRoot, skippableSteps: [] },
     });
     expect(result.capabilities.library.state).toBe("missing");
     expect(result.capabilities.library.detail).toContain("不存在");

@@ -11,7 +11,7 @@ export function overlayPath(dataDir: string): string {
 }
 
 export function emptyOverlay(): OverlayStore {
-  return { version: OVERLAY_VERSION, projects: {} };
+  return { version: OVERLAY_VERSION, projects: {}, skippableSteps: [] };
 }
 
 export function emptyOverlayProject(now = new Date()): OverlayProject {
@@ -146,6 +146,9 @@ export function decodeOverlay(value: unknown): OverlayStore {
   const store = emptyOverlay();
   if (typeof raw.libraryRoot === "string" && raw.libraryRoot.length > 0) {
     store.libraryRoot = raw.libraryRoot;
+  }
+  if (Array.isArray(raw.skippableSteps)) {
+    store.skippableSteps = raw.skippableSteps.filter((item): item is string => typeof item === "string");
   }
   const projects = asRecord(raw.projects);
   if (projects !== undefined) {

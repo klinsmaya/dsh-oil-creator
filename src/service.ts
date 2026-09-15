@@ -14,6 +14,7 @@ import {
   matchesQuery,
   scanLibrary,
 } from "./catalog.ts";
+import { listMaterialFiles, readProjectFile } from "./projectFiles.ts";
 import { expandHomePath, resolveDataDir, type Config } from "./config.ts";
 import { startLibraryWatch } from "./libraryWatch.ts";
 import {
@@ -30,10 +31,15 @@ import type {
   LibrarySettings,
   ListProjectsRequest,
   ListProjectsResult,
+  ListMaterialsResult,
   OpenFolderRequest,
   OverlayProject,
   OverlayStore,
+  ProjectDetail,
+  ProjectIdRequest,
   ProjectSummary,
+  ReadFileRequest,
+  ReadFileResult,
   SetLibraryRootRequest,
 } from "./types.ts";
 
@@ -115,7 +121,14 @@ export class DingzeService extends TypertRemoteService {
       if (this.cache?.libraryRoot === libraryRoot) {
         return { overlay, libraryRoot, items: this.cache.items };
       }
-      const items = await scanLibrary(libraryRoot, overlay, this.skippableOverride);
+      const items = await scanLibrary(
+        libraryRoot,
+        overlay,
+        skippableOverrideFromList([
+          ...Object.entries(this.skippableOverride).flatMap(([id, value]) => value ? [id] : [`!${id}`]),
+          ...(overlay.skippableSteps ?? []),
+        ]),
+      );
       this.cache = { libraryRoot, items };
       return { overlay, libraryRoot, items };
     });
@@ -216,10 +229,52 @@ export class DingzeService extends TypertRemoteService {
     return this.listProjects({ query: "" }, signal);
   }
 
+  async setSkippableSteps(
+    request: { skippableSteps: string[] },
+    signal: AbortSignal,
+  ): Promise<LibrarySettings> {
+    signal.throwIfAborted();
+    return withOverlayLock(this.dataDir, async () => {
+      const overlay = await loadOverlay(this.dataDir);
+      overlay.skippableSteps = request.skippableSteps;
+      await saveOverlay(this.dataDir, overlay);
+      this.invalidateCatalog();
+      return settingsOf(overlay.libraryRoot ?? this.libraryRoot, overlay);
+    });
+  }
+
   async openFolder(request: OpenFolderRequest, signal: AbortSignal): Promise<Record<string, never>> {
     signal.throwIfAborted();
     await openExternalPath(request.path);
     return {};
+  }
+
+  async projectDetail(request: ProjectIdRequest, signal: AbortSignal): Promise<ProjectDetail> {
+    signal.throwIfAborted();
+    const { overlay, items } = await this.scanned();
+    const summary = items.find((item) => item.id === request.id);
+    if (summary === undefined) throw new Error("这个项目已被移动或删除。");
+    return {
+      project: summary,
+      pending: overlay.projects[summary.id]?.pending.filter((item) => !item.done) ?? [],
+    };
+  }
+
+  async readFile(request: ReadFileRequest, signal: AbortSignal): Promise<ReadFileResult> {
+    signal.throwIfAborted();
+    const { items } = await this.scanned();
+    const summary = items.find((item) => item.id === request.id);
+    if (summary === undefined) throw new Error("这个项目已被移动或删除。");
+    const content = await readProjectFile(summary.folderPath, request.path);
+    return { path: request.path, content };
+  }
+
+  async listMaterials(request: ProjectIdRequest, signal: AbortSignal): Promise<ListMaterialsResult> {
+    signal.throwIfAborted();
+    const { items } = await this.scanned();
+    const summary = items.find((item) => item.id === request.id);
+    if (summary === undefined) throw new Error("这个项目已被移动或删除。");
+    return { items: await listMaterialFiles(summary.folderPath) };
   }
 }
 
@@ -242,8 +297,8 @@ export function resolveProjectSummary(
   return undefined;
 }
 
-function settingsOf(libraryRoot: string, _overlay: OverlayStore): LibrarySettings {
-  return { libraryRoot };
+function settingsOf(libraryRoot: string, overlay: OverlayStore): LibrarySettings {
+  return { libraryRoot, skippableSteps: overlay.skippableSteps ?? [] };
 }
 
 function resolveUserPath(path: string): string {

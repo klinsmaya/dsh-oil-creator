@@ -8,6 +8,7 @@ export interface DingzeUiState {
   query: string;
   sidebarTab: SidebarTab;
   inspectorWidth?: number;
+  autoOpenInspector: boolean;
 }
 
 export const DEFAULT_UI_STATE: DingzeUiState = {
@@ -15,6 +16,7 @@ export const DEFAULT_UI_STATE: DingzeUiState = {
   selectedId: null,
   query: "",
   sidebarTab: "content",
+  autoOpenInspector: true,
 };
 
 export interface DingzeStorage {
@@ -44,6 +46,7 @@ export function loadDingzeUiState(storage: DingzeStorage | undefined): DingzeUiS
       ...(typeof parsed.inspectorWidth === "number" && Number.isFinite(parsed.inspectorWidth)
         ? { inspectorWidth: parsed.inspectorWidth }
         : {}),
+      autoOpenInspector: parsed.autoOpenInspector !== false,
     };
   } catch {
     return { ...DEFAULT_UI_STATE };

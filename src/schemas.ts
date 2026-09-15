@@ -65,6 +65,11 @@ export const projectSummarySchema = z.object({
 
 export const librarySettingsSchema = z.object({
   libraryRoot: z.string().min(1),
+  skippableSteps: z.array(z.string()),
+});
+
+export const setSkippableStepsRequestSchema = z.object({
+  skippableSteps: z.array(z.string()),
 });
 
 export const listProjectsRequestSchema = z.object({
@@ -98,4 +103,40 @@ export const capabilitiesResultSchema = z.object({
 
 export const openFolderRequestSchema = z.object({
   path: z.string().min(1),
+});
+
+export const projectIdRequestSchema = z.object({
+  id: z.string().min(1),
+});
+
+export const readFileRequestSchema = z.object({
+  id: z.string().min(1),
+  path: z.string().min(1),
+});
+
+export const readFileResultSchema = z.object({
+  path: z.string(),
+  content: z.string(),
+});
+
+export const listMaterialsResultSchema = z.object({
+  items: z.array(z.object({
+    name: z.string(),
+    path: z.string(),
+  })),
+});
+
+export const projectDetailSchema = z.object({
+  project: projectSummarySchema,
+  pending: z.array(z.object({
+    id: z.string(),
+    step: stepIdSchema,
+    item: z.string(),
+    blocking: z.boolean(),
+    who: z.string().optional(),
+    when: z.string().optional(),
+    done: z.boolean(),
+    createdAt: z.string(),
+    doneAt: z.string().optional(),
+  })),
 });

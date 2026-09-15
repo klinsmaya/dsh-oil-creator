@@ -12,7 +12,21 @@ import type { DingzeViewFace } from "../face.ts";
 import { useLibraryEpoch, useSelectedContentId } from "../contentSelection.ts";
 import type { DingzeKey } from "../locales.ts";
 import { formatRelativeTime } from "../relativeTime.ts";
+import { StatusPill, type StatusTone } from "../ui/StatusPill.tsx";
 import "./DzSidebarPanel.css";
+
+function pillTone(tone: ProjectSummary["pillTone"]): StatusTone {
+  if (tone === "success") return "success";
+  return "pending";
+}
+
+export function rowMeta(item: ProjectSummary, t: (key: DingzeKey) => string, now = Date.now()): string {
+  const parts: string[] = [];
+  if (item.pendingCount > 0) parts.push(t("meta.pending").replace("{n}", String(item.pendingCount)));
+  if (item.blockingCount > 0) parts.push(t("meta.blocking").replace("{n}", String(item.blockingCount)));
+  parts.push(formatRelativeTime(Date.parse(item.updatedAt) || item.createdMs, now, t));
+  return parts.join(" · ");
+}
 
 function sortByRecency(items: ProjectSummary[]): ProjectSummary[] {
   return [...items].sort((a, b) => {
@@ -187,8 +201,11 @@ export function DzSidebarPanel({
           >
             <span className="dz-row-body">
               <span className="dz-row-title">{item.company}</span>
+              <span className="dz-row-pill">
+                <StatusPill tone={pillTone(item.pillTone)}>{item.pill}</StatusPill>
+              </span>
               <span className="dz-row-meta">
-                <span className="dz-row-date">{formatRelativeTime(item.createdMs, Date.now(), t)}</span>
+                <span className="dz-row-date">{rowMeta(item, t)}</span>
               </span>
             </span>
           </button>

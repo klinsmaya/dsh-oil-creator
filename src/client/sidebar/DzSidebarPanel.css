@@ -163,6 +163,10 @@
   line-height: 20px;
 }
 
+[data-plugin="dsh-dingze"][data-surface="sidebar"] .dz-row-pill {
+  margin: 2px 0;
+}
+
 [data-plugin="dsh-dingze"][data-surface="sidebar"] .dz-row-meta {
   display: flex;
   align-items: center;

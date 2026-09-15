@@ -43,6 +43,7 @@ describe("loadDingzeUiState", () => {
       selectedId: "2026-09-15_星河餐饮",
       query: "星河",
       sidebarTab: "content",
+      autoOpenInspector: true,
     });
   });
 
@@ -67,6 +68,7 @@ describe("saveDingzeUiState", () => {
       selectedId: "demo",
       query: "定责",
       sidebarTab: "content" as const,
+      autoOpenInspector: true,
     };
     expect(saveDingzeUiState(storage, state)).toBe(true);
     expect(loadDingzeUiState(storage)).toEqual(state);
