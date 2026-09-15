@@ -27,5 +27,5 @@ export function ActionButton({
 }
 
 export function ActionBar({ children }: { children: ReactNode }) {
-  return <div className="oilActionBar">{children}</div>;
+  return <div className="dz-action-bar">{children}</div>;
 }

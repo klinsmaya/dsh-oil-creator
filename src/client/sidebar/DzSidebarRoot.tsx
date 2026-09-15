@@ -6,17 +6,17 @@ import {
   Tooltip,
 } from "@deepseek-ai/dsh-client-ui-primitives";
 
-import type { CreatorViewFace } from "../face.ts";
-import type { CreatorKey } from "../locales.ts";
+import type { DingzeViewFace } from "../face.ts";
+import type { DingzeKey } from "../locales.ts";
 import {
   setSidebarChromeWidth,
   setSidebarTab,
   useSidebarTab,
 } from "../contentSelection.ts";
-import { ContentSidebarPanel } from "./ContentSidebarPanel.tsx";
-import { OilBrand } from "./OilBrand.tsx";
-import type { OilSidebarSlotProps } from "./slots.ts";
-import "./OilSidebarRoot.css";
+import { DzSidebarPanel } from "./DzSidebarPanel.tsx";
+import { DzBrand } from "./DzBrand.tsx";
+import type { DzSidebarSlotProps } from "./slots.ts";
+import "./DzSidebarRoot.css";
 
 const COLLAPSE_SETTLE_MS = 150;
 const SCROLLBAR_LINGER_MS = 2000;
@@ -25,15 +25,15 @@ function cx(...parts: Array<string | false | undefined>): string {
   return parts.filter((part): part is string => typeof part === "string" && part !== "").join(" ");
 }
 
-export type OilSidebarRootProps =
-  & OilSidebarSlotProps
+export type DzSidebarRootProps =
+  & DzSidebarSlotProps
   & {
     tabLabels: { sessions: string; content: string };
-    contentFace: CreatorViewFace;
-    contentT: (key: CreatorKey) => string;
+    contentFace: DingzeViewFace;
+    contentT: (key: DingzeKey) => string;
   };
 
-export function OilSidebarRoot({
+export function DzSidebarRoot({
   collapsed,
   width,
   startSession,
@@ -43,7 +43,7 @@ export function OilSidebarRoot({
   tabLabels,
   contentFace,
   contentT,
-}: OilSidebarRootProps) {
+}: DzSidebarRootProps) {
   const [settled, setSettled] = useState(collapsed);
   useEffect(() => {
     if (!collapsed) {
@@ -66,8 +66,6 @@ export function OilSidebarRoot({
   const chooseTab = (tab: typeof sidebarTab): void => {
     setSidebarTab(tab);
   };
-
-
 
   const column = useRef<HTMLDivElement>(null);
   const [pointerInside, setPointerInside] = useState(false);
@@ -118,7 +116,7 @@ export function OilSidebarRoot({
   return (
     <div
       ref={column}
-      data-plugin="dsh-oil-creator"
+      data-plugin="dsh-dingze"
       data-surface="sidebar"
       className={cx(
         !wide && "collapsed",
@@ -141,7 +139,7 @@ export function OilSidebarRoot({
             aria-label={t("session.new.label")}
             onClick={() => { startSession(); }}
           >
-            <OilBrand />
+            <DzBrand />
           </button>
         )}
         <Tooltip label={collapsed ? t("toggle.open") : t("toggle.collapse")} delayMs={500}>
@@ -153,7 +151,7 @@ export function OilSidebarRoot({
           >
             {!wide && (
               <span className="railBrand">
-                <OilBrand compact />
+                <DzBrand compact />
               </span>
             )}
             <IconPanelLeftOutline16 className="panelIcon" size={wide ? 16 : 18} />
@@ -224,7 +222,7 @@ export function OilSidebarRoot({
         </div>
         {contentMounted && (
           <div className={cx("regionPane", !contentVisible && "hidden")}>
-            <ContentSidebarPanel
+            <DzSidebarPanel
               t={contentT}
               {...contentFace}
             />

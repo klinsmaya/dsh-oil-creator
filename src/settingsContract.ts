@@ -1,1 +1,1 @@
-export const CREATOR_SETTINGS_NAMESPACE = "dsh-oil-creator";
+export const DINGZE_SETTINGS_NAMESPACE = "dsh-dingze";

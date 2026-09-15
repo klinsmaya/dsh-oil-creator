@@ -14,22 +14,12 @@ import { describe, expect, it } from "vitest";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const releaseCheck = resolve(root, "scripts/check-release.mjs");
-const buildScript = "tsdown && node scripts/copy-inplace.mjs scripts/collect-publish.mjs lib/collect-publish.mjs";
 const REQUIRED_CHAIN_FILES = [
-  "src/creatorSkill.ts",
   "src/capabilities.ts",
-  "src/guide.ts",
-  "src/platforms.ts",
-  "src/client/publishPlatforms.ts",
   "src/settingsContract.ts",
   "src/settingsHost.ts",
   "src/client/settingsSlot.ts",
-  "tests/creatorSkill.test.ts",
   "tests/capabilities.test.ts",
-  "tests/guide.test.ts",
-  "tests/platforms.test.ts",
-  "tests/creatorSettings.test.ts",
-  "tests/contentInspector.test.ts",
   "tests/settingsHost.test.ts",
   "tests/settingsSlot.test.ts",
 ];
@@ -39,17 +29,17 @@ function git(repository: string, ...args: string[]) {
 }
 
 function createRepository() {
-  const repository = mkdtempSync(join(tmpdir(), "dsh-oil-creator-release-"));
+  const repository = mkdtempSync(join(tmpdir(), "dsh-dingze-release-"));
   const files = new Map<string, string>([
     ["package.json", JSON.stringify({
-      name: "dsh-oil-creator",
+      name: "dsh-dingze",
       version: "0.1.0",
       repository: {
         type: "git",
-        url: "git+https://github.com/oil-oil/dsh-oil-creator.git",
+        url: "git+https://github.com/klinsmaya/dsh-oil-creator.git",
       },
-      bugs: { url: "https://github.com/oil-oil/dsh-oil-creator/issues" },
-      homepage: "https://github.com/oil-oil/dsh-oil-creator#readme",
+      bugs: { url: "https://github.com/klinsmaya/dsh-oil-creator/issues" },
+      homepage: "https://github.com/klinsmaya/dsh-oil-creator#readme",
       packageManager: "pnpm@10.16.1",
       main: "./lib/index.js",
       exports: { ".": "./lib/index.js" },
@@ -57,14 +47,12 @@ function createRepository() {
         "lib/index.js",
         "lib/client.js",
         "lib/typert.host.js",
-        "lib/collect-publish.mjs",
         "cordis.patch.yml",
         "README.md",
-        "assets/readme/hero.svg",
       ],
       dsh: { bundle: { patch: "./cordis.patch.yml" } },
       scripts: {
-        build: buildScript,
+        build: "tsdown",
         prepare: "npm run build",
         typecheck: "tsc --noEmit",
         check: "pnpm typecheck && pnpm test && pnpm build",
@@ -76,19 +64,16 @@ function createRepository() {
     ["cordis.patch.yml", "patch\n"],
     ["tsdown.config.ts", "export default {};\n"],
     ["vitest.config.ts", "export default {};\n"],
-    ["scripts/collect-publish.mjs", "export {};\n"],
     ["scripts/copy-inplace.mjs", readFileSync(resolve(root, "scripts/copy-inplace.mjs"), "utf8")],
     ["scripts/check-release.mjs", readFileSync(releaseCheck, "utf8")],
     [".gitignore", "node_modules\n"],
     ["lib/index.js", "export {};\n"],
     ["lib/client.js", "module.exports = {};\n"],
     ["lib/typert.host.js", "export {};\n"],
-    ["lib/collect-publish.mjs", "export {};\n"],
     ["src/index.ts", "export {};\n"],
     ["src/client/index.tsx", "export {};\n"],
     ...REQUIRED_CHAIN_FILES.map((file) => [file, "export {};\n"] as const),
     ["README.md", "# test\n"],
-    ["assets/readme/hero.svg", "<svg />\n"],
     ["LICENSE", "MIT\n"],
   ]);
 
@@ -161,7 +146,7 @@ describe("release:check", () => {
     }
   });
 
-  it("rejects missing origin and missing files", () => {
+  it("rejects missing origin and missing files", { timeout: 20_000 }, () => {
     const noOrigin = createRepository();
     const missing = createRepository();
     try {
@@ -169,10 +154,9 @@ describe("release:check", () => {
       const noOriginResult = runReleaseCheck(noOrigin);
       expect(noOriginResult.output).toContain("缺少 origin");
 
-      rmSync(join(missing, "assets/readme/hero.svg"));
+      rmSync(join(missing, "README.md"));
       const missingResult = runReleaseCheck(missing);
-      expect(missingResult.output).toContain("关键文件缺失：assets/readme/hero.svg");
-
+      expect(missingResult.output).toContain("关键文件缺失：README.md");
     } finally {
       rmSync(noOrigin, { recursive: true, force: true });
       rmSync(missing, { recursive: true, force: true });

@@ -6,42 +6,23 @@ import type {} from "@deepseek-ai/dsh-client-connection/client";
 import type {} from "@deepseek-ai/dsh-client-ui-settings-plugins/client";
 
 import { TYPERT_REMOTE } from "../remote.ts";
-import { CREATOR_SETTINGS_NAMESPACE } from "../settingsContract.ts";
+import { DINGZE_SETTINGS_NAMESPACE } from "../settingsContract.ts";
 import { startLibraryLiveSync } from "./catalogSync.ts";
 import { remountPluginCss, releasePluginCss } from "./pluginCss.ts";
 import { releaseShellChrome } from "./contentSelection.ts";
-import { registerContentTriggers } from "./contentTriggers.ts";
 import type {
-  ContentDetail,
-  ContentFilter,
-  CoverThumbResult,
-  CreateContentResult,
-  CreatorCapabilities,
-  CreatorProfile,
+  DingzeCapabilities,
   LibrarySettings,
-  ListContentsResult,
-  PublishMark,
-  PublishPlatform,
-  SubtitlePreviewResult,
-  SyncPublishResult,
-  ArticleMediaResult,
-  VideoPlaybackResult,
+  ListProjectsResult,
 } from "../types.ts";
-import { ContentInspector } from "./ContentInspector.tsx";
-import {
-  bumpLibrary,
-  bumpProfile,
-  getSelectedContentId,
-  setSelectedContentId,
-  subscribeSelectedContentId,
-} from "./contentSelection.ts";
-import type { CredentialsClient } from "./credentialsApi.ts";
+import { bumpLibrary, bumpProfile } from "./contentSelection.ts";
+import { conversationInputOf } from "./conversationInput.ts";
 import { CreatorSettingsCard } from "./CreatorSettingsCard.tsx";
-import type { CreatorViewFace } from "./face.ts";
-import { en, NS, type CreatorKey, zh } from "./locales.ts";
-import { OilSidebarRoot } from "./sidebar/OilSidebarRoot.tsx";
+import type { DingzeViewFace } from "./face.ts";
+import { en, NS, type DingzeKey, zh } from "./locales.ts";
+import { DzSidebarRoot } from "./sidebar/DzSidebarRoot.tsx";
 import { startSidebarSession } from "./sidebar/startSession.ts";
-import type { OilSidebarInjected, OilSidebarSlotProps } from "./sidebar/slots.ts";
+import type { DzSidebarInjected, DzSidebarSlotProps } from "./sidebar/slots.ts";
 import {
   registerCreatorSettingsCard,
   type CompatibleSettingsSlots,
@@ -49,7 +30,7 @@ import {
 
 declare module "@deepseek-ai/dsh-client-ui-slots" {
   interface LocaleNamespaceMap {
-    "dsh.oil.creator": CreatorKey;
+    "dsh.dingze": DingzeKey;
   }
 }
 
@@ -59,41 +40,14 @@ interface RemoteAnswer<T> {
   error?: { code: string; message: string };
 }
 
-interface OilCreatorRemote {
-  listContents: (request: { query: string; filter: ContentFilter }) => Promise<RemoteAnswer<ListContentsResult>>;
-  getContent: (request: { id: string }) => Promise<RemoteAnswer<ContentDetail>>;
-  getCoverThumb: (request: { id: string }) => Promise<RemoteAnswer<CoverThumbResult>>;
-  getVideoPlayback: (request: { id: string }) => Promise<RemoteAnswer<VideoPlaybackResult>>;
-  getArticleMedia: (request: { id: string }) => Promise<RemoteAnswer<ArticleMediaResult>>;
-  getSubtitleText: (request: { id: string }) => Promise<RemoteAnswer<{ text: string; cues: Array<{ text: string; at?: string }> }>>;
+interface DingzeRemote {
+  listProjects: (request: { query: string }) => Promise<RemoteAnswer<ListProjectsResult>>;
   getSettings: (request: Record<string, never>) => Promise<RemoteAnswer<LibrarySettings>>;
-  getCapabilities: (request: Record<string, never>) => Promise<RemoteAnswer<{ capabilities: CreatorCapabilities }>>;
+  getCapabilities: (request: Record<string, never>) => Promise<RemoteAnswer<{ capabilities: DingzeCapabilities }>>;
   getRevision: (request: Record<string, never>) => Promise<RemoteAnswer<{ revision: number }>>;
   setLibraryRoot: (request: { path: string }) => Promise<RemoteAnswer<LibrarySettings>>;
-  setProfile: (request: { profile: CreatorProfile }) => Promise<RemoteAnswer<LibrarySettings>>;
-  setScriptRules: (request: { text: string }) => Promise<RemoteAnswer<LibrarySettings>>;
-  refreshCatalog: (request: Record<string, never>) => Promise<RemoteAnswer<ListContentsResult>>;
-  createContent: (request: { title: string }) => Promise<RemoteAnswer<CreateContentResult>>;
-  setContentStage: (request: { id: string; readyToRecord: boolean }) => Promise<RemoteAnswer<ContentDetail>>;
-  bindStudio: (request: { id: string; path: string }) => Promise<RemoteAnswer<ContentDetail>>;
-  openStudio: (request: { id: string }) => Promise<RemoteAnswer<ContentDetail>>;
-  setPublish: (request: {
-    id: string;
-    platform: PublishPlatform;
-    status: PublishMark;
-    url?: string;
-  }) => Promise<RemoteAnswer<ContentDetail>>;
-  syncPublish: (request: { id?: string; platform?: PublishPlatform; force?: boolean }) => Promise<RemoteAnswer<SyncPublishResult>>;
-  openSubtitlePreview: (request: { id: string }) => Promise<RemoteAnswer<SubtitlePreviewResult>>;
-  startSubtitleBurn: (request: { id: string }) => Promise<RemoteAnswer<ContentDetail>>;
-  startSubtitleGenerate: (request: { id: string }) => Promise<RemoteAnswer<ContentDetail>>;
-  startCoverGenerate: (request: { id: string }) => Promise<RemoteAnswer<ContentDetail>>;
-  setScript: (request: { id: string; text: string }) => Promise<RemoteAnswer<ContentDetail>>;
-}
-
-function credentialsOf(ctx: ClientContext): CredentialsClient | undefined {
-  const connection = ctx.get("connection") as { api?: { credentials?: CredentialsClient } } | undefined;
-  return connection?.api?.credentials;
+  refreshCatalog: (request: Record<string, never>) => Promise<RemoteAnswer<ListProjectsResult>>;
+  openFolder: (request: { path: string }) => Promise<RemoteAnswer<Record<string, never>>>;
 }
 
 function unwrap<T>(answer: RemoteAnswer<T>, fallback: string): T {
@@ -106,58 +60,23 @@ function unwrap<T>(answer: RemoteAnswer<T>, fallback: string): T {
 export const inject = ["slots", "locale", "remote", "workspaces", "layout", "connection"];
 
 export function apply(ctx: ClientContext): void {
-  ctx.effect(() => ctx.locale.register(NS, { zh, en }), "dsh-oil-creator: dictionaries");
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), "dsh-dingze: dictionaries");
   ctx.effect(() => {
     remountPluginCss();
     return () => {
       releasePluginCss();
       releaseShellChrome();
     };
-  }, "dsh-oil-creator: chrome");
-  const remoteOf = (): OilCreatorRemote | undefined =>
-    ctx.get("remote.oilCreator") as OilCreatorRemote | undefined;
+  }, "dsh-dingze: chrome");
+  const remoteOf = (): DingzeRemote | undefined =>
+    ctx.get("remote.dz") as DingzeRemote | undefined;
 
-  const face = (): CreatorViewFace => ({
+  const face = (): DingzeViewFace => ({
     ready: () => remoteOf() !== undefined,
-    listContents: async (query, filter) => {
+    listProjects: async (query) => {
       const remote = remoteOf();
       if (remote === undefined) throw new Error("remote unavailable");
-      return unwrap(await remote.listContents({ query, filter }), "list failed");
-    },
-    getContent: async (id) => {
-      const remote = remoteOf();
-      if (remote === undefined) throw new Error("remote unavailable");
-      return unwrap(await remote.getContent({ id }), "content failed");
-    },
-    getCoverThumb: async (id) => {
-      const remote = remoteOf();
-      if (remote === undefined) return { found: false, mime: "", base64: "" };
-      const answer = await remote.getCoverThumb({ id });
-      return answer.ok && answer.value !== undefined
-        ? answer.value
-        : { found: false, mime: "", base64: "" };
-    },
-    getVideoPlayback: async (id) => {
-      const remote = remoteOf();
-      if (remote === undefined) return { found: false, url: "", kind: "raw" };
-      const answer = await remote.getVideoPlayback({ id });
-      return answer.ok && answer.value !== undefined
-        ? answer.value
-        : { found: false, url: "", kind: "raw" };
-    },
-    getArticleMedia: async (id) => {
-      const remote = remoteOf();
-      if (remote === undefined) return { found: false, origin: "" };
-      const answer = await remote.getArticleMedia({ id });
-      return answer.ok && answer.value !== undefined
-        ? answer.value
-        : { found: false, origin: "" };
-    },
-    getSubtitleText: async (id) => {
-      const remote = remoteOf();
-      if (remote === undefined) return { text: "", cues: [] };
-      const answer = await remote.getSubtitleText({ id });
-      return answer.ok && answer.value !== undefined ? answer.value : { text: "", cues: [] };
+      return unwrap(await remote.listProjects({ query }), "list failed");
     },
     pickDirectory: () => ctx.workspaces.pickDirectory(),
     openPath: (path) => ctx.workspaces.openPath(path),
@@ -182,18 +101,6 @@ export function apply(ctx: ClientContext): void {
       unwrap(await remote.setLibraryRoot({ path }), "set root failed");
       bumpLibrary();
     },
-    setProfile: async (profile) => {
-      const remote = remoteOf();
-      if (remote === undefined) throw new Error("remote unavailable");
-      unwrap(await remote.setProfile({ profile }), "set profile failed");
-      bumpProfile();
-    },
-    setScriptRules: async (text) => {
-      const remote = remoteOf();
-      if (remote === undefined) throw new Error("remote unavailable");
-      unwrap(await remote.setScriptRules({ text }), "set script rules failed");
-      bumpProfile();
-    },
     refreshCatalog: async () => {
       const remote = remoteOf();
       if (remote === undefined) throw new Error("remote unavailable");
@@ -201,102 +108,16 @@ export function apply(ctx: ClientContext): void {
       bumpLibrary();
       return listed;
     },
-    createContent: async (title) => {
-      const remote = remoteOf();
-      if (remote === undefined) throw new Error("remote unavailable");
-      const created = unwrap(await remote.createContent({ title }), "create failed");
-      bumpLibrary();
-      return created;
-    },
-    markReadyToRecord: async (id) => {
-      const remote = remoteOf();
-      if (remote === undefined) throw new Error("remote unavailable");
-      const next = unwrap(await remote.setContentStage({ id, readyToRecord: true }), "stage failed");
-      bumpLibrary();
-      return next;
-    },
-    bindStudio: async (id, path) => {
-      const remote = remoteOf();
-      if (remote === undefined) throw new Error("remote unavailable");
-      const next = unwrap(await remote.bindStudio({ id, path }), "bind failed");
-      bumpLibrary();
-      return next;
-    },
-    openStudio: async (id) => {
-      const remote = remoteOf();
-      if (remote === undefined) throw new Error("remote unavailable");
-      return unwrap(await remote.openStudio({ id }), "open failed");
-    },
-    setPublish: async (id, platform, status, url) => {
-      const remote = remoteOf();
-      if (remote === undefined) throw new Error("remote unavailable");
-      const next = unwrap(
-        await remote.setPublish(url === undefined ? { id, platform, status } : { id, platform, status, url }),
-        "publish failed",
-      );
-      bumpLibrary();
-      return next;
-    },
-    syncPublish: async (request) => {
-      const remote = remoteOf();
-      if (remote === undefined) throw new Error("remote unavailable");
-      const result = unwrap(
-        await remote.syncPublish(request ?? {}),
-        "sync failed",
-      );
-      bumpLibrary();
-      return result;
-    },
-    openSubtitlePreview: async (id) => {
-      const remote = remoteOf();
-      if (remote === undefined) throw new Error("remote unavailable");
-      return unwrap(await remote.openSubtitlePreview({ id }), "preview failed");
-    },
-    startSubtitleBurn: async (id) => {
-      const remote = remoteOf();
-      if (remote === undefined) throw new Error("remote unavailable");
-      const next = unwrap(await remote.startSubtitleBurn({ id }), "burn failed");
-      bumpLibrary();
-      return next;
-    },
-    startSubtitleGenerate: async (id) => {
-      const remote = remoteOf();
-      if (remote === undefined) throw new Error("remote unavailable");
-      const next = unwrap(await remote.startSubtitleGenerate({ id }), "transcribe failed");
-      bumpLibrary();
-      return next;
-    },
-    startCoverGenerate: async (id) => {
-      const remote = remoteOf();
-      if (remote === undefined) throw new Error("remote unavailable");
-      const next = unwrap(await remote.startCoverGenerate({ id }), "cover failed");
-      bumpLibrary();
-      return next;
-    },
-    setScript: async (id, text) => {
-      const remote = remoteOf();
-      if (remote === undefined) throw new Error("remote unavailable");
-      return unwrap(await remote.setScript({ id, text }), "script failed");
+    draftNewProject: () => {
+      const conversation = ctx.get("conversation");
+      const input = conversationInputOf(conversation);
+      input?.setDraft("新建定责项目：");
     },
   });
 
   const contentFace = face();
 
-  ctx.effect(() => {
-    const triggers = ctx.get("inputTriggers") as
-      | Parameters<typeof registerContentTriggers>[0]
-      | undefined;
-    return registerContentTriggers(
-      triggers,
-      (id) => contentFace.getContent(id),
-      async () => {
-        const listed = await contentFace.listContents("", "all");
-        return listed.items.map((item) => ({ id: item.id, title: item.title }));
-      },
-    );
-  }, "dsh-oil-creator: content triggers");
-
-  const injectSidebar = (): OilSidebarInjected => ({
+  const injectSidebar = (): DzSidebarInjected => ({
     startSession: (workspaceId?: WorkspaceId) => {
       startSidebarSession(ctx, workspaceId);
     },
@@ -305,10 +126,10 @@ export function apply(ctx: ClientContext): void {
     },
   });
 
-  function BoundSidebar(props: OilSidebarSlotProps) {
+  function BoundSidebar(props: DzSidebarSlotProps) {
     const contentT = ctx.locale.bind(NS);
     return (
-      <OilSidebarRoot
+      <DzSidebarRoot
         {...props}
         tabLabels={{
           sessions: contentT("tab.sessions"),
@@ -336,69 +157,30 @@ export function apply(ctx: ClientContext): void {
 
   ctx.effect(async () => {
     const disposeRemote = await ctx.remote.$mount(TYPERT_REMOTE);
-    // Cordis waits for async effect setup during unload. Do not install new
-    // slots after the owner has already entered teardown; release the remote
-    // contribution immediately in that race.
     if (ctx.fiber.state >= 5) {
       await disposeRemote();
       return () => {};
     }
     bumpProfile();
 
-    const stopOverlay = ctx.slots.inject("shell.overlay", () => {
-      let disposeOccupant: (() => void) | undefined;
-      const release = (): void => {
-        disposeOccupant?.();
-        disposeOccupant = undefined;
-      };
-      const sync = (): void => {
-        if (getSelectedContentId() === null) {
-          release();
-          return;
-        }
-        if (disposeOccupant !== undefined) return;
-        disposeOccupant = ctx.slots.register({
-          name: "shell.overlay",
-          id: "oil-creator-inspector",
-          order: 20,
-          locale: NS,
-          inject: () => ({
-            ...face(),
-            closeDetails: () => {
-              setSelectedContentId(null);
-            },
-          }),
-        }, ContentInspector);
-      };
-      const stop = subscribeSelectedContentId(sync);
-      sync();
-      return () => {
-        stop();
-        release();
-      };
-    });
     const stopSettings = ctx.slots.inject("settings.plugin.item", () =>
       registerCreatorSettingsCard(
         ctx.slots as unknown as CompatibleSettingsSlots,
         CreatorSettingsCard,
         {
-          namespace: CREATOR_SETTINGS_NAMESPACE,
-          legacyId: "dsh-oil-creator",
+          namespace: DINGZE_SETTINGS_NAMESPACE,
+          legacyId: "dsh-dingze",
           legacyOrder: 40,
           locale: NS,
-          inject: () => ({
-            ...face(),
-            credentials: credentialsOf(ctx),
-          }),
+          inject: () => face(),
         },
       ));
     const stopLive = startLibraryLiveSync(() => contentFace.getRevision());
 
     return async () => {
       stopLive();
-      stopOverlay();
       stopSettings();
       await disposeRemote();
     };
-  }, "dsh-oil-creator: remote-view");
+  }, "dsh-dingze: remote-view");
 }

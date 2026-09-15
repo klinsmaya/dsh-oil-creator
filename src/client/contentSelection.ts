@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 
 import {
-  browserCreatorStorage,
-  loadCreatorUiState,
-  saveCreatorUiState,
+  browserDingzeStorage,
+  loadDingzeUiState,
+  saveDingzeUiState,
   type SidebarTab,
 } from "./persistence.ts";
 
@@ -12,7 +12,7 @@ type Listener = () => void;
 const listeners = new Set<Listener>();
 const libraryListeners = new Set<Listener>();
 const profileListeners = new Set<Listener>();
-const initialUi = loadCreatorUiState(browserCreatorStorage());
+const initialUi = loadDingzeUiState(browserDingzeStorage());
 let selectedId = initialUi.selectedId;
 let sidebarTab: SidebarTab = initialUi.sidebarTab;
 let libraryEpoch = 0;
@@ -20,7 +20,7 @@ let profileEpoch = 0;
 let sidebarWidthPx = 280;
 export const INSPECTOR_MIN = 320;
 export const INSPECTOR_MAX = 800;
-export const INSPECTOR_DEFAULT = 640;
+export const INSPECTOR_DEFAULT = 320;
 let inspectorWidthPx = clampInspectorWidth(initialUi.inspectorWidth ?? INSPECTOR_DEFAULT);
 
 function clampInspectorWidth(px: number): number {
@@ -58,11 +58,11 @@ export function setSidebarChromeWidth(px: number): void {
   sidebarWidthPx = px;
   if (typeof document !== "undefined") {
     if (!sidebarWidthStyleCaptured) {
-      previousSidebarWidthStyle = document.documentElement.style.getPropertyValue("--oil-sidebar-width");
-      previousSidebarWidthPriority = document.documentElement.style.getPropertyPriority("--oil-sidebar-width");
+      previousSidebarWidthStyle = document.documentElement.style.getPropertyValue("--dz-sidebar-width");
+      previousSidebarWidthPriority = document.documentElement.style.getPropertyPriority("--dz-sidebar-width");
       sidebarWidthStyleCaptured = true;
     }
-    document.documentElement.style.setProperty("--oil-sidebar-width", `${px}px`);
+    document.documentElement.style.setProperty("--dz-sidebar-width", `${px}px`);
   }
   emitChrome();
 }
@@ -71,10 +71,10 @@ export function releaseShellChrome(): void {
   if (typeof document !== "undefined") {
     if (sidebarWidthStyleCaptured) {
       if (previousSidebarWidthStyle === "") {
-        document.documentElement.style.removeProperty("--oil-sidebar-width");
+        document.documentElement.style.removeProperty("--dz-sidebar-width");
       } else {
         document.documentElement.style.setProperty(
-          "--oil-sidebar-width",
+          "--dz-sidebar-width",
           previousSidebarWidthStyle,
           previousSidebarWidthPriority,
         );
@@ -95,8 +95,8 @@ export function setInspectorWidth(px: number): void {
   const next = clampInspectorWidth(px);
   if (inspectorWidthPx === next) return;
   inspectorWidthPx = next;
-  const state = loadCreatorUiState(browserCreatorStorage());
-  saveCreatorUiState(browserCreatorStorage(), { ...state, inspectorWidth: next });
+  const state = loadDingzeUiState(browserDingzeStorage());
+  saveDingzeUiState(browserDingzeStorage(), { ...state, inspectorWidth: next });
 }
 
 export function getInspectorWidth(): number {
@@ -236,8 +236,8 @@ export function getSidebarTab(): SidebarTab {
 export function setSidebarTab(tab: SidebarTab): void {
   if (sidebarTab === tab) return;
   sidebarTab = tab;
-  const state = loadCreatorUiState(browserCreatorStorage());
-  saveCreatorUiState(browserCreatorStorage(), { ...state, sidebarTab });
+  const state = loadDingzeUiState(browserDingzeStorage());
+  saveDingzeUiState(browserDingzeStorage(), { ...state, sidebarTab });
   emitChrome();
 }
 
@@ -263,8 +263,8 @@ export function setSelectedContentId(id: string | null): void {
     return;
   }
   selectedId = id;
-  const state = loadCreatorUiState(browserCreatorStorage());
-  saveCreatorUiState(browserCreatorStorage(), { ...state, selectedId });
+  const state = loadDingzeUiState(browserDingzeStorage());
+  saveDingzeUiState(browserDingzeStorage(), { ...state, selectedId });
   if (id === null) clearConversationInset();
   emit();
 }

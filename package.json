@@ -1,21 +1,20 @@
 {
-  "name": "dsh-oil-creator",
+  "name": "dsh-dingze",
   "version": "0.1.0",
-  "description": "AI-assisted local creator workbench for DeepSeek Harness",
+  "description": "定责工作台：DeepSeek Harness 插件，帮经营团队走完定战略责、定目标责、定行动责",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/oil-oil/dsh-oil-creator.git"
+    "url": "git+https://github.com/klinsmaya/dsh-oil-creator.git"
   },
   "bugs": {
-    "url": "https://github.com/oil-oil/dsh-oil-creator/issues"
+    "url": "https://github.com/klinsmaya/dsh-oil-creator/issues"
   },
-  "homepage": "https://github.com/oil-oil/dsh-oil-creator#readme",
+  "homepage": "https://github.com/klinsmaya/dsh-oil-creator#readme",
   "keywords": [
     "deepseek-harness",
-    "creator",
-    "content-workflow",
-    "video"
+    "dingze",
+    "定责"
   ],
   "engines": {
     "node": ">=22.19.0"
@@ -33,9 +32,7 @@
     "lib/index.js",
     "lib/client.js",
     "lib/typert.host.js",
-    "lib/collect-publish.mjs",
     "cordis.patch.yml",
-    "scripts/collect-publish.mjs",
     "README.md",
     "assets/readme/hero.svg",
     "docs/*.md",
@@ -60,7 +57,7 @@
     }
   },
   "scripts": {
-    "build": "tsdown && node scripts/copy-inplace.mjs scripts/collect-publish.mjs lib/collect-publish.mjs",
+    "build": "tsdown",
     "prepare": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

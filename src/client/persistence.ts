@@ -1,32 +1,28 @@
-import type { ContentFilter } from "../types.ts";
-
-export const CREATOR_STORAGE_KEY = "dsh-oil-creator/ui/v1";
+export const DINGZE_STORAGE_KEY = "dsh-dingze/ui/v1";
 
 export type SidebarTab = "sessions" | "content";
 
-export interface CreatorUiState {
+export interface DingzeUiState {
   schemaVersion: 1;
   selectedId: string | null;
-  filter: ContentFilter;
   query: string;
   sidebarTab: SidebarTab;
   inspectorWidth?: number;
 }
 
-export const DEFAULT_UI_STATE: CreatorUiState = {
+export const DEFAULT_UI_STATE: DingzeUiState = {
   schemaVersion: 1,
   selectedId: null,
-  filter: "all",
   query: "",
-  sidebarTab: "sessions",
+  sidebarTab: "content",
 };
 
-export interface CreatorStorage {
+export interface DingzeStorage {
   getItem: (key: string) => string | null;
   setItem: (key: string, value: string) => void;
 }
 
-export function browserCreatorStorage(): CreatorStorage | undefined {
+export function browserDingzeStorage(): DingzeStorage | undefined {
   try {
     return globalThis.localStorage;
   } catch {
@@ -34,19 +30,17 @@ export function browserCreatorStorage(): CreatorStorage | undefined {
   }
 }
 
-export function loadCreatorUiState(storage: CreatorStorage | undefined): CreatorUiState {
+export function loadDingzeUiState(storage: DingzeStorage | undefined): DingzeUiState {
   if (storage === undefined) return { ...DEFAULT_UI_STATE };
   try {
-    const raw = storage.getItem(CREATOR_STORAGE_KEY);
+    const raw = storage.getItem(DINGZE_STORAGE_KEY);
     if (raw === null) return { ...DEFAULT_UI_STATE };
-    const parsed = JSON.parse(raw) as Partial<CreatorUiState>;
-    const filter = parsed.filter;
+    const parsed = JSON.parse(raw) as Partial<DingzeUiState>;
     return {
       schemaVersion: 1,
       selectedId: typeof parsed.selectedId === "string" ? parsed.selectedId : null,
-      filter: filter === "cover" || filter === "subtitle" || filter === "article" ? filter : "all",
       query: typeof parsed.query === "string" ? parsed.query : "",
-      sidebarTab: parsed.sidebarTab === "content" ? "content" : "sessions",
+      sidebarTab: parsed.sidebarTab === "sessions" ? "sessions" : "content",
       ...(typeof parsed.inspectorWidth === "number" && Number.isFinite(parsed.inspectorWidth)
         ? { inspectorWidth: parsed.inspectorWidth }
         : {}),
@@ -56,13 +50,13 @@ export function loadCreatorUiState(storage: CreatorStorage | undefined): Creator
   }
 }
 
-export function saveCreatorUiState(
-  storage: CreatorStorage | undefined,
-  state: CreatorUiState,
+export function saveDingzeUiState(
+  storage: DingzeStorage | undefined,
+  state: DingzeUiState,
 ): boolean {
   if (storage === undefined) return false;
   try {
-    storage.setItem(CREATOR_STORAGE_KEY, JSON.stringify(state));
+    storage.setItem(DINGZE_STORAGE_KEY, JSON.stringify(state));
     return true;
   } catch {
     return false;

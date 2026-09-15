@@ -1,9 +1,9 @@
-import type { CreatorKey } from "./locales.ts";
+import type { DingzeKey } from "./locales.ts";
 
 export function formatRelativeTime(
   recordedAt: number,
   now: number,
-  t: (key: CreatorKey) => string,
+  t: (key: DingzeKey) => string,
 ): string {
   const delta = now - recordedAt;
   if (delta < 45_000) return t("time.justNow");

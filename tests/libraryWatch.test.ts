@@ -12,10 +12,9 @@ import {
 
 describe("shouldIgnoreWatchName", () => {
   it("keeps real library files", () => {
-    expect(shouldIgnoreWatchName("2026-08-16_demo/cover_3x4.png")).toBe(false);
-    expect(shouldIgnoreWatchName("2026-08-16_demo/publish-package.json")).toBe(false);
-    expect(shouldIgnoreWatchName("2026-08-16_demo/script.md")).toBe(false);
-    expect(shouldIgnoreWatchName("2026-08-16_demo/topic.md")).toBe(false);
+    expect(shouldIgnoreWatchName("2026-09-15_星河餐饮/定版/画像.md")).toBe(false);
+    expect(shouldIgnoreWatchName("2026-09-15_星河餐饮/AGENTS.md")).toBe(false);
+    expect(shouldIgnoreWatchName("2026-09-15_星河餐饮/材料/纪要.md")).toBe(false);
     expect(shouldIgnoreWatchName(null)).toBe(false);
   });
 
@@ -23,7 +22,7 @@ describe("shouldIgnoreWatchName", () => {
     expect(shouldIgnoreWatchName(".DS_Store")).toBe(true);
     expect(shouldIgnoreWatchName("2026-08-16_demo/.DS_Store")).toBe(true);
     expect(shouldIgnoreWatchName("clip.mp4.part")).toBe(true);
-    expect(shouldIgnoreWatchName("demo.screenstudio/project.json")).toBe(true);
+    expect(shouldIgnoreWatchName(".dsh-dingze/overlay.json")).toBe(true);
     expect(shouldIgnoreWatchName("._cover.png")).toBe(true);
   });
 });
