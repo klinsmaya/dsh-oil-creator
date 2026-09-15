@@ -11,6 +11,7 @@ import {
   loadDingzeUiState,
   saveDingzeUiState,
 } from "./persistence.ts";
+import { DZ_ICON_SRC } from "./assets/dzIcon.ts";
 import { ActionBar, ActionButton } from "./ui/ActionButton.tsx";
 import { StatusPill, type StatusTone } from "./ui/StatusPill.tsx";
 import "./CreatorSettingsCard.css";
@@ -102,6 +103,7 @@ export function CreatorSettingsCard({
         aria-expanded={open}
         onClick={() => { setOpen((current) => !current); }}
       >
+        <img className="dz-settings-icon" src={DZ_ICON_SRC} alt="" aria-hidden="true" />
         <div className="headText">
           <div className="name">{t("settings.title")}</div>
           <div className="description">{t("settings.description")}</div>

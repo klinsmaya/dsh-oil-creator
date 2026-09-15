@@ -30,6 +30,13 @@
   outline-offset: -2px;
 }
 
+[data-plugin="dsh-dingze"][data-surface="settings-card"] .dz-settings-icon {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 999px;
+}
+
 [data-plugin="dsh-dingze"][data-surface="settings-card"] .headText {
   flex: 1;
   min-width: 0;

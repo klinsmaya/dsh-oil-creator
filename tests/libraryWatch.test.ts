@@ -99,7 +99,7 @@ describe("startLibraryWatch", () => {
   });
 
   it("notifies after a library file change", async () => {
-    const root = join(tmpdir(), `oil-watch-${Date.now()}`);
+    const root = join(tmpdir(), `dz-watch-${Date.now()}`);
     const dataDir = join(root, "data");
     const libraryRoot = join(root, "library");
     await mkdir(libraryRoot, { recursive: true });
@@ -124,12 +124,12 @@ describe("startLibraryWatch", () => {
     handle.close();
   });
 
-  it("notifies after a script.md change in an episode folder", async () => {
-    const root = join(tmpdir(), `oil-watch-script-${Date.now()}`);
+  it("notifies after a finalized file change in a project folder", async () => {
+    const root = join(tmpdir(), `dz-watch-final-${Date.now()}`);
     const dataDir = join(root, "data");
     const libraryRoot = join(root, "library");
-    const episodeDir = join(libraryRoot, "2026-08-16_demo");
-    await mkdir(episodeDir, { recursive: true });
+    const projectDir = join(libraryRoot, "2026-09-15_星河餐饮", "定版");
+    await mkdir(projectDir, { recursive: true });
     await mkdir(dataDir, { recursive: true });
     const overlayPath = join(dataDir, "overlay.json");
     await writeFile(overlayPath, "{}\n");
@@ -145,8 +145,7 @@ describe("startLibraryWatch", () => {
       fallbackMs: 100,
     });
     await handle.ready;
-    // Regression: agent-written scripts must reach onChange, not be filtered as noise.
-    await writeFile(join(episodeDir, "script.md"), "# 口播脚本\n");
+    await writeFile(join(projectDir, "画像.md"), "# 画像\n");
     await expect.poll(() => seen.length, { timeout: 4000 }).toBeGreaterThan(0);
     handle.close();
   });

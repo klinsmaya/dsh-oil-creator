@@ -59,3 +59,5 @@ pnpm check
 ```
 
 需要 Node ≥ 22.19。配套教练人设 `dingze-coach` 不在本仓库。
+
+本插件由 [oil-oil/dsh-oil-creator](https://github.com/oil-oil/dsh-oil-creator) 改造。当前仓库地址仍是 `klinsmaya/dsh-oil-creator`。
