@@ -124,7 +124,7 @@ export function CreatorSettingsCard({
             <span className="fieldLabel">{t("settings.skippable")}</span>
             <span className="fieldHint">{t("settings.skippableHint")}</span>
             <input
-              className="path"
+              className="input"
               value={draftSkip}
               onChange={(event) => { setDraftSkip(event.target.value); }}
             />

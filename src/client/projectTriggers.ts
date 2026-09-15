@@ -1,5 +1,5 @@
 import { getSelectedContentId, subscribeSelectedContentId } from "./contentSelection.ts";
-import { CHAPTERS, STEPS, chapterLabel } from "../steps.ts";
+import { STEPS, chapterLabel } from "../steps.ts";
 
 interface TriggerCandidate {
   name: string;
@@ -83,7 +83,6 @@ export function registerProjectTriggers(
   const stopAt = inputTriggers.registerSource(atSource);
   const stopSlash = inputTriggers.registerSource(slashSource);
   const stopLexicon = subscribeSelectedContentId(() => undefined);
-  void CHAPTERS;
   return () => {
     stopAt();
     stopSlash();
