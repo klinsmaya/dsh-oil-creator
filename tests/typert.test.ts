@@ -1,44 +1,31 @@
 import { describe, expect, it } from "vitest";
 
-import { OIL_CREATOR_INVOCATIONS, PACKAGE_NAME, REMOTE_NAMESPACE } from "../src/remote-contract.ts";
+import { DINGZE_INVOCATIONS, PACKAGE_NAME, REMOTE_NAMESPACE } from "../src/remote-contract.ts";
 import { TYPERT } from "../src/typert.host.ts";
 
 describe("handwritten TYPERT", () => {
   it("matches the package and host face", () => {
     expect(TYPERT.package).toBe(PACKAGE_NAME);
     expect(TYPERT.face).toBe("host");
-    expect(TYPERT.invocations).toBe(OIL_CREATOR_INVOCATIONS);
+    expect(TYPERT.invocations).toBe(DINGZE_INVOCATIONS);
   });
 
-  it("exposes oilCreator methods with zod v4 codecs", () => {
-    const methods = OIL_CREATOR_INVOCATIONS.map((item) => item.method);
+  it("exposes dz methods with zod v4 codecs", () => {
+    const methods = DINGZE_INVOCATIONS.map((item) => item.method);
     expect(methods).toEqual([
-      "listContents",
-      "getContent",
-      "getCoverThumb",
-      "getVideoPlayback",
-      "getArticleMedia",
-      "getSubtitleText",
+      "listProjects",
       "getSettings",
       "getCapabilities",
       "getRevision",
       "setLibraryRoot",
       "refreshCatalog",
-      "createContent",
-      "setContentStage",
-      "setProfile",
-      "setScriptRules",
-      "bindStudio",
-      "openStudio",
-      "setPublish",
-      "syncPublish",
-      "setScript",
-      "openSubtitlePreview",
-      "startSubtitleBurn",
-      "startSubtitleGenerate",
-      "startCoverGenerate",
+      "openFolder",
+      "projectDetail",
+      "readFile",
+      "listMaterials",
+      "setSkippableSteps",
     ]);
-    for (const item of OIL_CREATOR_INVOCATIONS) {
+    for (const item of DINGZE_INVOCATIONS) {
       expect(item.service).toBe(REMOTE_NAMESPACE);
       expect(item.namespace).toBe(REMOTE_NAMESPACE);
       expect(item.result.mode).toBe("strict");

@@ -1,0 +1,147 @@
+[data-plugin="dsh-dingze"][data-surface="inspector"] {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--dsw-alias-bg-base);
+  border-right: 1px solid var(--dsw-alias-border-l1);
+  box-sizing: border-box;
+  font: var(--dsw-font-markdown-base);
+  color: var(--dsw-alias-label-primary);
+}
+
+[data-plugin="dsh-dingze"][data-surface="inspector"].docked {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--dz-sidebar-width, 280px);
+}
+
+[data-plugin="dsh-dingze"][data-surface="inspector"].docked.open:not(.dragging) {
+  transition: width var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+[data-plugin="dsh-dingze"][data-surface="inspector"] .dz-resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+  width: 6px;
+  height: 100%;
+  cursor: ew-resize;
+}
+
+[data-plugin="dsh-dingze"][data-surface="inspector"] .dz-insp-header {
+  flex: none;
+  padding: 12px 16px 0;
+}
+
+[data-plugin="dsh-dingze"][data-surface="inspector"] .dz-insp-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 32px;
+}
+
+[data-plugin="dsh-dingze"][data-surface="inspector"] .dz-insp-title {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-plugin="dsh-dingze"][data-surface="inspector"] .dz-insp-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+[data-plugin="dsh-dingze"][data-surface="inspector"] .dz-insp-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+[data-plugin="dsh-dingze"][data-surface="inspector"] .dz-insp-icon:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+[data-plugin="dsh-dingze"][data-surface="inspector"] .dz-insp-progress {
+  margin: 4px 0 8px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+[data-plugin="dsh-dingze"][data-surface="inspector"] .dz-insp-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+[data-plugin="dsh-dingze"][data-surface="inspector"] .dz-insp-tab {
+  padding: 4px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+[data-plugin="dsh-dingze"][data-surface="inspector"] .dz-insp-tab.active {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+[data-plugin="dsh-dingze"][data-surface="inspector"] .dz-insp-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 16px 16px;
+}
+
+[data-plugin="dsh-dingze"][data-surface="inspector"] .dz-insp-empty {
+  padding: 8px 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+[data-plugin="dsh-dingze"][data-surface="inspector"] .dz-insp-lede {
+  margin: 8px 0 12px;
+}
+
+[data-plugin="dsh-dingze"][data-surface="inspector"] .dz-step-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 32px;
+}
+
+[data-plugin="dsh-dingze"][data-surface="inspector"] .dz-step-name,
+[data-plugin="dsh-dingze"][data-surface="inspector"] .dz-current-name {
+  min-width: 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+[data-plugin="dsh-dingze"][data-surface="inspector"] .dz-current-name {
+  margin-bottom: 8px;
+  font-weight: 500;
+}

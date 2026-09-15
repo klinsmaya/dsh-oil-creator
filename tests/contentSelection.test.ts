@@ -114,7 +114,7 @@ describe("content selection", () => {
     scrollport.parentElement = host;
     host.style.setProperty("padding-left", "8px", "important");
     host.style.setProperty("transition", "opacity 1s");
-    root.style.setProperty("--oil-sidebar-width", "11px", "important");
+    root.style.setProperty("--dz-sidebar-width", "11px", "important");
     vi.stubGlobal("HTMLElement", FakeHTMLElement);
     vi.stubGlobal("document", {
       documentElement: root,
@@ -124,26 +124,26 @@ describe("content selection", () => {
     const { applyConversationInset, clearConversationInset, releaseShellChrome, setSidebarChromeWidth } =
       await import("../src/client/contentSelection.ts");
 
-    expect(applyConversationInset(640, false)).toBe(host);
-    expect(host.style.getPropertyValue("padding-left")).toBe("640px");
+    expect(applyConversationInset(320, false)).toBe(host);
+    expect(host.style.getPropertyValue("padding-left")).toBe("320px");
     expect(host.style.getPropertyValue("transition")).toBe("none");
-    expect(applyConversationInset(720, true)).toBe(host);
-    expect(host.style.getPropertyValue("padding-left")).toBe("720px");
+    expect(applyConversationInset(400, true)).toBe(host);
+    expect(host.style.getPropertyValue("padding-left")).toBe("400px");
 
     setSidebarChromeWidth(350);
-    expect(root.style.getPropertyValue("--oil-sidebar-width")).toBe("350px");
+    expect(root.style.getPropertyValue("--dz-sidebar-width")).toBe("350px");
     releaseShellChrome();
     clearConversationInset();
     expect(host.style.getPropertyValue("padding-left")).toBe("8px");
     expect(host.style.getPropertyPriority("padding-left")).toBe("important");
     expect(host.style.getPropertyValue("transition")).toBe("opacity 1s");
-    expect(root.style.getPropertyValue("--oil-sidebar-width")).toBe("11px");
-    expect(root.style.getPropertyPriority("--oil-sidebar-width")).toBe("important");
+    expect(root.style.getPropertyValue("--dz-sidebar-width")).toBe("11px");
+    expect(root.style.getPropertyPriority("--dz-sidebar-width")).toBe("important");
 
     setSidebarChromeWidth(350);
-    expect(root.style.getPropertyValue("--oil-sidebar-width")).toBe("350px");
+    expect(root.style.getPropertyValue("--dz-sidebar-width")).toBe("350px");
     releaseShellChrome();
-    expect(root.style.getPropertyValue("--oil-sidebar-width")).toBe("11px");
+    expect(root.style.getPropertyValue("--dz-sidebar-width")).toBe("11px");
   });
 
   it("does not touch the document when the conversation seam is absent", async () => {
@@ -158,6 +158,6 @@ describe("content selection", () => {
       querySelector: () => null,
     });
     const { applyConversationInset } = await import("../src/client/contentSelection.ts");
-    expect(applyConversationInset(640)).toBeNull();
+    expect(applyConversationInset(320)).toBeNull();
   });
 });

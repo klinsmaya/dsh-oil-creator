@@ -9,29 +9,18 @@ const REQUIRED_FILES = [
   "cordis.patch.yml",
   "tsdown.config.ts",
   "vitest.config.ts",
-  "scripts/collect-publish.mjs",
   "scripts/copy-inplace.mjs",
   "scripts/check-release.mjs",
   "src/index.ts",
   "src/client/index.tsx",
-  "src/creatorSkill.ts",
   "src/capabilities.ts",
-  "src/guide.ts",
-  "src/platforms.ts",
-  "src/client/publishPlatforms.ts",
   "src/settingsContract.ts",
   "src/settingsHost.ts",
   "src/client/settingsSlot.ts",
-  "tests/creatorSkill.test.ts",
   "tests/capabilities.test.ts",
-  "tests/guide.test.ts",
-  "tests/platforms.test.ts",
-  "tests/creatorSettings.test.ts",
-  "tests/contentInspector.test.ts",
   "tests/settingsHost.test.ts",
   "tests/settingsSlot.test.ts",
   "README.md",
-  "assets/readme/hero.svg",
   "LICENSE",
 ];
 
@@ -39,11 +28,10 @@ const RUNTIME_FILES = [
   "lib/index.js",
   "lib/client.js",
   "lib/typert.host.js",
-  "lib/collect-publish.mjs",
 ];
 
-const GITHUB_REPOSITORY = "https://github.com/oil-oil/dsh-oil-creator";
-const GITHUB_REPOSITORY_GIT = "git+https://github.com/oil-oil/dsh-oil-creator.git";
+const GITHUB_REPOSITORY = "https://github.com/klinsmaya/dsh-oil-creator";
+const GITHUB_REPOSITORY_GIT = "git+https://github.com/klinsmaya/dsh-oil-creator.git";
 
 function git(root, args) {
   return execFileSync("git", args, {
@@ -118,8 +106,8 @@ function checkRelease(root) {
   }
 
   const scripts = manifest.scripts ?? {};
-  if (scripts.build !== "tsdown && node scripts/copy-inplace.mjs scripts/collect-publish.mjs lib/collect-publish.mjs") {
-    addFailure("build 脚本不是仓库内可复现的 tsdown + lib 拷贝流程");
+  if (scripts.build !== "tsdown") {
+    addFailure("build 脚本必须是仓库内可复现的 tsdown");
   }
   if (scripts.prepare !== "npm run build") {
     addFailure("prepare 必须固定为 npm run build");
@@ -135,6 +123,9 @@ function checkRelease(root) {
   }
   if (typeof manifest.packageManager !== "string" || !manifest.packageManager.startsWith("pnpm@")) {
     addFailure("缺少固定版本的 pnpm packageManager");
+  }
+  if (manifest.name !== "dsh-dingze") {
+    addFailure("package name 必须是 dsh-dingze");
   }
   if (manifest.repository?.type !== "git" || manifest.repository?.url !== GITHUB_REPOSITORY_GIT) {
     addFailure("repository 必须指向 GitHub 源码仓库");
@@ -162,7 +153,7 @@ function checkRelease(root) {
   }
 
   const packageFiles = new Set(manifest.files ?? []);
-  for (const file of [...RUNTIME_FILES, "cordis.patch.yml", "README.md", "assets/readme/hero.svg"]) {
+  for (const file of [...RUNTIME_FILES, "cordis.patch.yml", "README.md"]) {
     if (!packageFiles.has(file)) addFailure(`npm tarball 未声明 ${file}`);
   }
   if (manifest.main !== "./lib/index.js") addFailure("main 未指向预构建 lib/index.js");
@@ -204,10 +195,9 @@ function runReleasePipeline(root) {
   const packedFiles = new Set(
     metadata.flatMap((pack) => pack.files ?? []).map((file) => file.path),
   );
-  const missing = [...RUNTIME_FILES, "assets/readme/hero.svg"]
-    .filter((file) => !packedFiles.has(file));
+  const missing = RUNTIME_FILES.filter((file) => !packedFiles.has(file));
   return missing.length > 0
-    ? [`npm pack --dry-run 缺少运行或 Hero 文件：${missing.join(", ")}`]
+    ? [`npm pack --dry-run 缺少运行文件：${missing.join(", ")}`]
     : [];
 }
 

@@ -1,5 +1,4 @@
-import { mkdir, readFile } from "node:fs/promises";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -7,94 +6,104 @@ import { describe, expect, it } from "vitest";
 
 import {
   decodeOverlay,
-  decodeProfile,
-  emptyProfile,
   emptyOverlay,
+  emptyOverlayProject,
+  ensureOverlayProject,
   loadOverlay,
-  normalizeEnabledPlatforms,
+  OverlayVersionError,
   overlayPath,
-  profileIsEmpty,
   saveOverlay,
-  withOverlayLock,
 } from "../src/overlay.ts";
-import { creatorProfileSchema } from "../src/schemas.ts";
 
-describe("creator profile", () => {
-  it("enables all supported platforms by default", () => {
-    expect(emptyProfile()).toEqual({
-      enabledPlatforms: ["xiaohongshu", "douyin", "bilibili", "wechat"],
-    });
-    expect(decodeProfile(undefined)).toEqual(emptyProfile());
+describe("overlay decode", () => {
+  it("returns an empty store for junk", () => {
+    expect(decodeOverlay(null)).toEqual(emptyOverlay());
+    expect(decodeOverlay("nope")).toEqual(emptyOverlay());
   });
 
-  it("deduplicates enabled platforms and filters invalid values", () => {
-    expect(normalizeEnabledPlatforms([
-      "wechat",
-      "invalid",
-      "douyin",
-      "douyin",
-      "youtube",
-    ])).toEqual(["douyin", "wechat"]);
+  it("rejects an unknown version", () => {
+    expect(() => decodeOverlay({ version: 9, projects: {} })).toThrow(OverlayVersionError);
   });
 
-  it.each([
-    ["empty legacy platforms", { platforms: {} }],
-    ["partial legacy homepages", {
-      name: "Example Creator",
-      platforms: {
-        xiaohongshu: "https://xiaohongshu.example/creator",
-        bilibili: "https://bilibili.example/creator",
+  it("keeps libraryRoot and typed project fields", () => {
+    const store = decodeOverlay({
+      version: 1,
+      libraryRoot: "/tmp/定责项目",
+      projects: {
+        "2026-09-15_星河餐饮": {
+          sessionIds: ["s1", 3, ""],
+          pending: [{
+            id: "p1",
+            step: "S1-00",
+            item: "补客户",
+            blocking: true,
+            done: false,
+            createdAt: "2026-09-15T00:00:00.000Z",
+            who: "李四",
+          }, { id: "bad" }],
+          skipped: {
+            "S1-02": { reason: "后补", at: "2026-09-15T00:00:00.000Z" },
+            "NOPE": { reason: "x", at: "t" },
+          },
+          reopened: {
+            "S1-01": { reason: "改使命", at: "2026-09-15T01:00:00.000Z" },
+          },
+          needsReview: {
+            "S1-02": { because: "S1-01", at: "2026-09-15T01:00:00.000Z" },
+          },
+          finalized: {
+            "S1-00": { at: "2026-09-15T00:30:00.000Z" },
+          },
+          signed: { by: "张三", at: "2026-09-16T00:00:00.000Z" },
+          updatedAt: "2026-09-16T00:00:00.000Z",
+        },
       },
-    }],
-  ])("ignores %s and defaults all platforms", (_label, legacy) => {
-    expect(decodeProfile(legacy)).toEqual(emptyProfile());
-    expect(decodeOverlay({ profile: legacy, items: {} }).profile).toEqual(emptyProfile());
+    });
+    expect(store.libraryRoot).toBe("/tmp/定责项目");
+    const project = store.projects["2026-09-15_星河餐饮"];
+    expect(project?.sessionIds).toEqual(["s1"]);
+    expect(project?.pending).toHaveLength(1);
+    expect(project?.pending[0]?.who).toBe("李四");
+    expect(project?.skipped["S1-02"]?.reason).toBe("后补");
+    expect(project?.skipped).not.toHaveProperty("NOPE");
+    expect(project?.reopened["S1-01"]?.reason).toBe("改使命");
+    expect(project?.needsReview["S1-02"]?.because).toBe("S1-01");
+    expect(project?.finalized["S1-00"]?.at).toBe("2026-09-15T00:30:00.000Z");
+    expect(project?.signed?.by).toBe("张三");
   });
 
-  it("keeps an explicit empty enabled list", () => {
-    const overlay = decodeOverlay({ profile: { name: "ignored", enabledPlatforms: [] }, items: {} });
-    expect(overlay.profile).toEqual({ enabledPlatforms: [] });
-    expect(profileIsEmpty(overlay.profile!)).toBe(true);
-  });
-
-  it("validates only the new profile shape", () => {
-    expect(creatorProfileSchema.parse({
-      name: "ignored",
-      enabledPlatforms: ["xiaohongshu", "wechat"],
-    })).toEqual({ enabledPlatforms: ["xiaohongshu", "wechat"] });
-    expect(() => creatorProfileSchema.parse({ platforms: {} })).toThrow();
-  });
-});
-
-describe("script rules", () => {
-  it("round-trips through save and load", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "oil-overlay-"));
+  it("creates a project on demand", () => {
     const store = emptyOverlay();
-    store.scriptRules = "口语化，少用术语。";
-    await saveOverlay(dir, store);
-    expect((await loadOverlay(dir)).scriptRules).toBe("口语化，少用术语。");
-  });
-
-  it("trims and drops empty rules when decoding", () => {
-    expect(decodeOverlay({ scriptRules: "  开头抛结论。  " }).scriptRules).toBe("开头抛结论。");
-    expect(decodeOverlay({ scriptRules: "   " }).scriptRules).toBeUndefined();
-    expect(decodeOverlay({}).scriptRules).toBeUndefined();
+    const created = ensureOverlayProject(store, "p1", new Date("2026-09-15T00:00:00.000Z"));
+    expect(created.updatedAt).toBe("2026-09-15T00:00:00.000Z");
+    expect(store.projects.p1).toBe(created);
+    expect(ensureOverlayProject(store, "p1")).toBe(created);
   });
 });
 
-describe("overlay lock", () => {
-  it("serializes overlapping writes", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "oil-overlay-"));
-    await mkdir(dir, { recursive: true });
-    const order: number[] = [];
-    await Promise.all([0, 1, 2].map((index) => withOverlayLock(dir, async () => {
-      const store = await loadOverlay(dir);
-      store.items[String(index)] = { title: String(index) };
-      await saveOverlay(dir, store);
-      order.push(index);
-    })));
-    const raw = JSON.parse(await readFile(overlayPath(dir), "utf8")) as { items: Record<string, { title: string }> };
-    expect(Object.keys(raw.items).sort()).toEqual(["0", "1", "2"]);
-    expect(order.sort()).toEqual([0, 1, 2]);
+describe("overlay persistence", () => {
+  it("loads empty when the file is missing", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "dz-overlay-missing-"));
+    await expect(loadOverlay(dir)).resolves.toEqual(emptyOverlay());
+  });
+
+  it("writes atomically and round-trips", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "dz-overlay-save-"));
+    const store = emptyOverlay();
+    store.libraryRoot = "/tmp/lib";
+    store.projects.demo = emptyOverlayProject(new Date("2026-09-15T00:00:00.000Z"));
+    store.projects.demo.sessionIds.push("sess");
+    await saveOverlay(dir, store);
+    const raw = await readFile(overlayPath(dir), "utf8");
+    expect(raw.endsWith("\n")).toBe(true);
+    expect(JSON.parse(raw)).toMatchObject({ version: 1, libraryRoot: "/tmp/lib" });
+    const loaded = await loadOverlay(dir);
+    expect(loaded.projects.demo?.sessionIds).toEqual(["sess"]);
+  });
+
+  it("rejects a stored unknown version", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "dz-overlay-ver-"));
+    await writeFile(overlayPath(dir), `${JSON.stringify({ version: 2, projects: {} })}\n`);
+    await expect(loadOverlay(dir)).rejects.toBeInstanceOf(OverlayVersionError);
   });
 });

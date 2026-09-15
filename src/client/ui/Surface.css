@@ -1,28 +1,28 @@
-[data-plugin="dsh-oil-creator"] .oilSurface {
+[data-plugin="dsh-dingze"] .dz-surface {
   padding: 14px 14px 16px;
   border-radius: 12px;
   background: var(--dsw-alias-bg-layer-2);
 }
 
-[data-plugin="dsh-oil-creator"] .oilSurface + .oilSurface,
-[data-plugin="dsh-oil-creator"] .oilSurface + .block,
-[data-plugin="dsh-oil-creator"] .lede + .oilSurface {
+[data-plugin="dsh-dingze"] .dz-surface + .dz-surface,
+[data-plugin="dsh-dingze"] .dz-surface + .block,
+[data-plugin="dsh-dingze"] .lede + .dz-surface {
   margin-top: 16px;
 }
 
-[data-plugin="dsh-oil-creator"] .oilSurfaceTitle {
+[data-plugin="dsh-dingze"] .dz-surface-title {
   margin-bottom: 4px;
   font: var(--dsw-font-markdown-base-strong);
   color: var(--dsw-alias-label-primary);
 }
 
-[data-plugin="dsh-oil-creator"] .oilSurfaceHint {
+[data-plugin="dsh-dingze"] .dz-surface-hint {
   margin: 0 0 12px;
   color: var(--dsw-alias-label-tertiary);
   font: var(--dsw-font-markdown-small);
 }
 
-[data-plugin="dsh-oil-creator"] .oilSurfaceTitle + .oilActionBar,
-[data-plugin="dsh-oil-creator"] .oilSurfaceHint + .oilActionBar {
+[data-plugin="dsh-dingze"] .dz-surface-title + .dz-action-bar,
+[data-plugin="dsh-dingze"] .dz-surface-hint + .dz-action-bar {
   margin-top: 12px;
 }

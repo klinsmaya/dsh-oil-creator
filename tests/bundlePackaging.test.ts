@@ -25,6 +25,7 @@ describe("DeepSeek Harness bundle packaging", () => {
     const manifest = JSON.parse(
       readFileSync(resolve(root, "package.json"), "utf8"),
     ) as {
+      name?: string;
       files?: string[];
       scripts?: Record<string, string>;
       engines?: { node?: string };
@@ -33,83 +34,43 @@ describe("DeepSeek Harness bundle packaging", () => {
         client?: { inject?: string[] };
       };
       peerDependencies?: Record<string, string>;
-      repository?: { type?: string; url?: string };
-      bugs?: { url?: string };
-      homepage?: string;
     };
     const patch = readFileSync(resolve(root, "cordis.patch.yml"), "utf8");
     const copyInplace = readFileSync(
       resolve(root, "scripts/copy-inplace.mjs"),
       "utf8",
     );
-    const releaseCheck = readFileSync(
-      resolve(root, "scripts/check-release.mjs"),
-      "utf8",
-    );
 
+    expect(manifest.name).toBe("dsh-dingze");
     expect(manifest.dsh?.bundle?.patch).toBe("./cordis.patch.yml");
     expect(manifest.files).toContain("cordis.patch.yml");
     expect(manifest.files).toContain("README.md");
-    expect(manifest.files).toContain("assets/readme/hero.svg");
     expect(manifest.files).toContain("LICENSE");
     expect(manifest.files).toContain("docs/*.md");
+    expect(manifest.files).not.toContain("lib/collect-publish.mjs");
     expect(manifest.scripts?.prepare).toBe("npm run build");
     expect(manifest.scripts?.["release:check"]).toBe(
       "node scripts/check-release.mjs",
     );
     expect(manifest.engines?.node).toBe(">=22.19.0");
-    expect(manifest.repository).toEqual({
-      type: "git",
-      url: "git+https://github.com/oil-oil/dsh-oil-creator.git",
-    });
-    expect(manifest.bugs?.url).toBe(
-      "https://github.com/oil-oil/dsh-oil-creator/issues",
-    );
-    expect(manifest.homepage).toBe(
-      "https://github.com/oil-oil/dsh-oil-creator#readme",
-    );
     expect(manifest.dsh?.client?.inject).toEqual(expect.arrayContaining([
       "@deepseek-ai/dsh-client-ui-settings",
       "@deepseek-ai/dsh-client-ui-settings-plugins",
     ]));
     expect(manifest.peerDependencies?.["@deepseek-ai/dsh-settings"])
       .toContain("0.1.0-rc.7");
-    expect(manifest.peerDependencies?.["@deepseek-ai/dsh-client-ui-settings-plugins"])
-      .toContain("0.1.0-rc.7");
     expect(patch).toMatch(/^- id: ui-sidebar\n  disabled: true$/m);
-    expect(patch).toMatch(/^- insert:\n    - id: dsh-oil-creator\n      name: dsh-oil-creator$/m);
+    expect(patch).toMatch(/^- insert:\n    - id: dsh-dingze\n      name: dsh-dingze$/m);
     expect(copyInplace).not.toContain(".dsh/profiles");
     expect(copyInplace).toContain("libDirectory");
-    expect(releaseCheck).toContain('run(root, "pnpm", ["check"])');
-    expect(releaseCheck).toContain(
-      '"pack", "--dry-run", "--ignore-scripts", "--json"',
-    );
   });
 
-  it("documents lifecycle through dsh plugin instead of profile edits", () => {
-    const readme = readFileSync(resolve(root, "README.md"), "utf8");
-    const implementation = readFileSync(
-      resolve(root, "docs/implementation.md"),
-      "utf8",
-    );
-
-    expect(readme).toContain("plugin --profile web add");
-    expect(readme).toContain(
-      "dsh plugin --profile web remove dsh-oil-creator",
-    );
-    expect(implementation).toContain("dsh.bundle.patch");
-    expect(implementation).not.toContain(
-      "`~/.dsh/profiles/web/package.json` 里的 `file:` 依赖",
-    );
-  });
-
-  it("keeps README assets and runtime files in the real npm tarball", () => {
-    const packDirectory = mkdtempSync(join(tmpdir(), "dsh-oil-creator-pack-"));
+  it("keeps runtime files in the real npm tarball", () => {
+    const packDirectory = mkdtempSync(join(tmpdir(), "dsh-dingze-pack-"));
     const runtimeFiles = [
       "lib/index.js",
       "lib/client.js",
       "lib/typert.host.js",
-      "lib/collect-publish.mjs",
     ];
 
     try {
@@ -145,17 +106,13 @@ describe("DeepSeek Harness bundle packaging", () => {
 
       expect([...packedFiles]).toEqual(expect.arrayContaining([
         "README.md",
-        "assets/readme/hero.svg",
         "LICENSE",
         "cordis.patch.yml",
         "lib/index.js",
         "lib/client.js",
         "lib/typert.host.js",
-        "lib/collect-publish.mjs",
       ]));
-      expect(
-        [...packedFiles].some((entry) => entry.startsWith("assets/readme/source/")),
-      ).toBe(false);
+      expect([...packedFiles].some((entry) => entry.includes("collect-publish"))).toBe(false);
     } finally {
       rmSync(packDirectory, { recursive: true, force: true });
     }

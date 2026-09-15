@@ -12,9 +12,9 @@ export function Surface({
   children?: ReactNode;
 }) {
   return (
-    <section className="oilSurface">
-      {title !== undefined && <div className="oilSurfaceTitle">{title}</div>}
-      {hint !== undefined && <p className="oilSurfaceHint">{hint}</p>}
+    <section className="dz-surface">
+      {title !== undefined && <div className="dz-surface-title">{title}</div>}
+      {hint !== undefined && <p className="dz-surface-hint">{hint}</p>}
       {children}
     </section>
   );

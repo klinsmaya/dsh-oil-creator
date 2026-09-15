@@ -3,32 +3,22 @@ import { z } from "zod";
 
 import {
   capabilitiesResultSchema,
-  contentDetailSchema,
-  coverThumbResultSchema,
-  idRequestSchema,
   librarySettingsSchema,
-  listContentsRequestSchema,
-  listContentsResultSchema,
-  setLibraryRootRequestSchema,
-  createContentRequestSchema,
-  createContentResultSchema,
-  setContentStageRequestSchema,
-  setProfileRequestSchema,
-  setScriptRulesRequestSchema,
-  bindStudioRequestSchema,
-  setPublishRequestSchema,
-  setScriptRequestSchema,
-  subtitlePreviewResultSchema,
-  subtitleTextResultSchema,
+  listMaterialsResultSchema,
+  listProjectsRequestSchema,
+  listProjectsResultSchema,
+  openFolderRequestSchema,
+  projectDetailSchema,
+  projectIdRequestSchema,
+  readFileRequestSchema,
+  readFileResultSchema,
   revisionResultSchema,
-  syncPublishRequestSchema,
-  syncPublishResultSchema,
-  videoPlaybackResultSchema,
-  articleMediaResultSchema,
+  setLibraryRootRequestSchema,
+  setSkippableStepsRequestSchema,
 } from "./schemas.ts";
 
-export const PACKAGE_NAME = "dsh-oil-creator";
-export const REMOTE_NAMESPACE = "oilCreator";
+export const PACKAGE_NAME = "dsh-dingze";
+export const REMOTE_NAMESPACE = "dz";
 
 const emptyObjectSchema = z.object({});
 
@@ -67,29 +57,16 @@ function invocation(
   };
 }
 
-export const OIL_CREATOR_INVOCATIONS: readonly InvocationDescriptor[] = [
-  invocation("listContents", listContentsRequestSchema, listContentsResultSchema),
-  invocation("getContent", idRequestSchema, contentDetailSchema),
-  invocation("getCoverThumb", idRequestSchema, coverThumbResultSchema),
-  invocation("getVideoPlayback", idRequestSchema, videoPlaybackResultSchema),
-  invocation("getArticleMedia", idRequestSchema, articleMediaResultSchema),
-  invocation("getSubtitleText", idRequestSchema, subtitleTextResultSchema),
+export const DINGZE_INVOCATIONS: readonly InvocationDescriptor[] = [
+  invocation("listProjects", listProjectsRequestSchema, listProjectsResultSchema),
   invocation("getSettings", emptyObjectSchema, librarySettingsSchema),
   invocation("getCapabilities", emptyObjectSchema, capabilitiesResultSchema),
   invocation("getRevision", emptyObjectSchema, revisionResultSchema),
   invocation("setLibraryRoot", setLibraryRootRequestSchema, librarySettingsSchema),
-  invocation("refreshCatalog", emptyObjectSchema, listContentsResultSchema),
-  invocation("createContent", createContentRequestSchema, createContentResultSchema),
-  invocation("setContentStage", setContentStageRequestSchema, contentDetailSchema),
-  invocation("setProfile", setProfileRequestSchema, librarySettingsSchema),
-  invocation("setScriptRules", setScriptRulesRequestSchema, librarySettingsSchema),
-  invocation("bindStudio", bindStudioRequestSchema, contentDetailSchema),
-  invocation("openStudio", idRequestSchema, contentDetailSchema),
-  invocation("setPublish", setPublishRequestSchema, contentDetailSchema),
-  invocation("syncPublish", syncPublishRequestSchema, syncPublishResultSchema),
-  invocation("setScript", setScriptRequestSchema, contentDetailSchema),
-  invocation("openSubtitlePreview", idRequestSchema, subtitlePreviewResultSchema),
-  invocation("startSubtitleBurn", idRequestSchema, contentDetailSchema),
-  invocation("startSubtitleGenerate", idRequestSchema, contentDetailSchema),
-  invocation("startCoverGenerate", idRequestSchema, contentDetailSchema),
+  invocation("refreshCatalog", emptyObjectSchema, listProjectsResultSchema),
+  invocation("openFolder", openFolderRequestSchema, emptyObjectSchema),
+  invocation("projectDetail", projectIdRequestSchema, projectDetailSchema),
+  invocation("readFile", readFileRequestSchema, readFileResultSchema),
+  invocation("listMaterials", projectIdRequestSchema, listMaterialsResultSchema),
+  invocation("setSkippableSteps", setSkippableStepsRequestSchema, librarySettingsSchema),
 ];

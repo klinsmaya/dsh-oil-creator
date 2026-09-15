@@ -1,17 +1,17 @@
 import { SlotCore } from "@deepseek-ai/dsh-client-ui-slots";
 import { describe, expect, it, vi } from "vitest";
 
-import { CREATOR_SETTINGS_NAMESPACE } from "../src/settingsContract.ts";
+import { DINGZE_SETTINGS_NAMESPACE } from "../src/settingsContract.ts";
 import {
   registerCreatorSettingsCard,
   type CompatibleSettingsSlots,
 } from "../src/client/settingsSlot.ts";
 
 const OPTIONS = {
-  namespace: CREATOR_SETTINGS_NAMESPACE,
-  legacyId: "dsh-oil-creator",
+  namespace: DINGZE_SETTINGS_NAMESPACE,
+  legacyId: "dsh-dingze",
   legacyOrder: 40,
-  locale: "dsh.oil.creator",
+  locale: "dsh.dingze",
   inject: () => ({}),
 };
 
@@ -36,13 +36,13 @@ describe("settings.plugin.item compatibility", () => {
   it("passes the rc.7 keyed slot validation", () => {
     const slots = registerWithSlotCore("keyed");
     expect(slots.entries("settings.plugin.item")[0]?.options.key)
-      .toBe(CREATOR_SETTINGS_NAMESPACE);
+      .toBe(DINGZE_SETTINGS_NAMESPACE);
   });
 
   it("passes the rc.6 list slot validation", () => {
     const slots = registerWithSlotCore("list");
     expect(slots.entries("settings.plugin.item")[0]?.options.id)
-      .toBe("dsh-oil-creator");
+      .toBe("dsh-dingze");
   });
 
   it("registers both compatibility coordinates through the public facade", () => {
@@ -55,8 +55,8 @@ describe("settings.plugin.item compatibility", () => {
     expect(register).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "settings.plugin.item",
-        key: CREATOR_SETTINGS_NAMESPACE,
-        id: "dsh-oil-creator",
+        key: DINGZE_SETTINGS_NAMESPACE,
+        id: "dsh-dingze",
         order: 40,
       }),
       "card",

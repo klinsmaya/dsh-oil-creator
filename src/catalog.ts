@@ -1,30 +1,31 @@
-import { mkdir, readdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 
+import { emptyOverlayProject } from "./overlay.ts";
 import {
-  ARTICLE_DIR,
-  isSubtitledVideoName,
-  pickArticleFile,
-  pickPublishPackage,
-} from "./artifacts.ts";
-import { anyPlatformPublished, emptyBurn, mergePublish, readFolderPublish } from "./publishStatus.ts";
+  chapterLabel,
+  isSkippable,
+  STEPS,
+  type SkippableOverride,
+  type StepId,
+} from "./steps.ts";
 import type {
-  ContentFilter,
-  ContentSummary,
-  LibraryCounts,
-  OverlayItem,
+  OverlayProject,
   OverlayStore,
-  PipelineStage,
-  SubtitleCue,
-  WorkflowStage,
+  PillTone,
+  ProjectStage,
+  ProjectSummary,
+  StepState,
+  StepSummary,
 } from "./types.ts";
 
-const DATE_PREFIX = /^(\d{4}-\d{2}-\d{2})_(.+)$/;
-const SKIP_DIRS = new Set([
-  ".dsh-oil-creator",
-  ".oil-cover",
-  "公众号文章",
-]);
+export const DATE_PREFIX = /^(\d{4}-\d{2}-\d{2})_(.+)$/;
+export const FINAL_DIR = "定版";
+export const HISTORY_DIR = "历史";
+export const MATERIAL_DIR = "材料";
+export const AGENTS_FILE = "AGENTS.md";
+
+const SKIP_DIRS = new Set([".dsh-dingze"]);
 
 export function formatDay(now: Date): string {
   const year = String(now.getFullYear());
@@ -33,8 +34,8 @@ export function formatDay(now: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-export function readableTitle(title: string): string {
-  return title
+export function readableCompany(name: string): string {
+  return name
     .trim()
     .replace(/[\\/:*?"<>|\n\r]/g, "")
     .replace(/[-_]+/g, " ")
@@ -42,29 +43,69 @@ export function readableTitle(title: string): string {
     .trim();
 }
 
-export function folderNameForTitle(title: string, now: Date): string {
-  const safe = readableTitle(title);
-  if (safe === "") throw new Error("empty title");
+export function folderNameForCompany(company: string, now: Date): string {
+  const safe = readableCompany(company);
+  if (safe === "") throw new Error("empty company");
   return `${formatDay(now)}_${safe}`;
 }
 
-export async function createContentFolder(
+export function folderDateAndCompany(folderName: string): {
+  date?: string;
+  company: string;
+} {
+  const matched = DATE_PREFIX.exec(folderName);
+  if (matched === null || matched[1] === undefined || matched[2] === undefined) {
+    return { company: folderName };
+  }
+  return { date: matched[1], company: matched[2] };
+}
+
+export function isDatedProjectName(folderName: string): boolean {
+  return DATE_PREFIX.test(folderName);
+}
+
+export function matchesQuery(item: ProjectSummary, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (needle === "") return true;
+  return item.company.toLowerCase().includes(needle)
+    || item.id.toLowerCase().includes(needle);
+}
+
+export function pathInside(parent: string, child: string): boolean {
+  const root = resolve(parent);
+  const target = resolve(child);
+  const rel = relative(root, target);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+export function projectIdUnderLibrary(cwd: string, libraryRoot: string): string | undefined {
+  if (!pathInside(libraryRoot, cwd)) return undefined;
+  const rel = relative(resolve(libraryRoot), resolve(cwd));
+  if (rel === "") return undefined;
+  const first = rel.split(sep)[0];
+  return first === undefined || first === "" ? undefined : first;
+}
+
+export async function createProjectFolder(
   libraryRoot: string,
-  title: string,
+  company: string,
   now = new Date(),
 ): Promise<{ id: string; folderPath: string }> {
   const root = await stat(libraryRoot).catch(() => undefined);
   if (root === undefined || !root.isDirectory()) {
-    throw new Error("library root missing");
+    await mkdir(libraryRoot, { recursive: true });
   }
-  const base = folderNameForTitle(title, now);
+  const base = folderNameForCompany(company, now);
   let id = base;
   let suffix = 2;
   while (true) {
     const folderPath = join(libraryRoot, id);
     const exists = await stat(folderPath).then(() => true, () => false);
     if (!exists) {
-      await mkdir(folderPath);
+      await mkdir(folderPath, { recursive: true });
+      await mkdir(join(folderPath, FINAL_DIR), { recursive: true });
+      await mkdir(join(folderPath, MATERIAL_DIR), { recursive: true });
+      await writeFile(join(folderPath, AGENTS_FILE), `# ${readableCompany(company)}\n\n定版文件放在 定版/，补充材料放在 材料/。\n`, "utf8");
       return { id, folderPath };
     }
     id = `${base}-${suffix}`;
@@ -72,525 +113,217 @@ export async function createContentFolder(
   }
 }
 
-export function folderDateAndTitle(folderName: string): {
-  date?: string;
-  title: string;
-} {
-  const matched = DATE_PREFIX.exec(folderName);
-  if (matched === null || matched[1] === undefined || matched[2] === undefined) {
-    return { title: folderName };
-  }
-  return { date: matched[1], title: matched[2] };
+export async function listFinalFiles(folderPath: string): Promise<Set<string>> {
+  const names = await readdir(join(folderPath, FINAL_DIR)).catch((): string[] => []);
+  return new Set(names.filter((name) => name.endsWith(".md")));
 }
 
-export function folderDateMs(date: string | undefined): number | undefined {
-  if (date === undefined) return undefined;
-  const matched = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
-  if (matched === null) return undefined;
-  const year = Number(matched[1]);
-  const month = Number(matched[2]);
-  const day = Number(matched[3]);
-  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return undefined;
-  const value = new Date(year, month - 1, day).getTime();
-  return Number.isFinite(value) ? value : undefined;
+function firstByOrder(ids: readonly StepId[]): StepId | undefined {
+  const found = STEPS.find((step) => ids.includes(step.id));
+  return found?.id;
 }
 
-function hasCover(item: ContentSummary): boolean {
-  return item.covers["3x4"] !== undefined
-    || item.covers["4x3"] !== undefined
-    || item.covers["16x9"] !== undefined;
+function stateOf(
+  files: ReadonlySet<string>,
+  overlay: OverlayProject,
+  id: StepId,
+): Exclude<StepState, "current"> {
+  if (overlay.reopened[id] !== undefined) return "reopened";
+  const def = STEPS.find((step) => step.id === id);
+  const hasFile = def !== undefined && files.has(def.file);
+  if (hasFile && overlay.needsReview[id] !== undefined) return "needsReview";
+  if (hasFile) return "final";
+  if (overlay.skipped[id] !== undefined) return "skipped";
+  return "todo";
 }
 
-function sameCalendarDay(a: number, b: number): boolean {
-  const left = new Date(a);
-  const right = new Date(b);
-  return left.getFullYear() === right.getFullYear()
-    && left.getMonth() === right.getMonth()
-    && left.getDate() === right.getDate();
+function pillFor(
+  stage: ProjectStage,
+  current: StepSummary | undefined,
+): { pill: string; pillTone: PillTone } {
+  if (stage === "done") return { pill: "已收官", pillTone: "success" };
+  if (stage === "closing") return { pill: "待签约", pillTone: "pending" };
+  const chapter = current?.chapter ?? 1;
+  const name = current?.name ?? "画像";
+  const pillTone: PillTone = current?.state === "needsReview" ? "warning" : "pending";
+  return { pill: `${chapterLabel(chapter)} · ${name}`, pillTone };
 }
 
-function hasSubtitle(item: ContentSummary): boolean {
-  return item.subtitles.srt !== undefined
-    || item.subtitles.ass !== undefined
-    || item.subtitles.transcript !== undefined
-    || item.videoSubtitled !== undefined;
+function progressLineFor(
+  stage: ProjectStage,
+  current: StepSummary | undefined,
+  steps: readonly StepSummary[],
+): string {
+  if (stage === "done") return "进度：已收官";
+  if (stage === "closing") return "进度：定三责已走完 · 待签约";
+  const chapter = current?.chapter ?? 1;
+  const finals = steps.filter((step) => step.chapter === chapter && step.state === "final").length;
+  return `进度：${chapterLabel(chapter)} · ${current?.name ?? "画像"} · 已定版 ${finals}`;
 }
 
-export function pipelineOf(item: Omit<ContentSummary, "pipeline" | "workflow">): PipelineStage {
-  if (item.hasPublishPackage) return "packaged";
-  if (hasCover(item as ContentSummary)) return "covered";
-  if (hasSubtitle(item as ContentSummary)) return "subtitled";
-  return "raw";
-}
+export function summarizeProject(
+  files: ReadonlySet<string>,
+  overlay: OverlayProject,
+  skippableOverride?: SkippableOverride,
+): Pick<
+  ProjectSummary,
+  | "stage"
+  | "currentStep"
+  | "currentStepName"
+  | "progressLine"
+  | "pill"
+  | "pillTone"
+  | "pendingCount"
+  | "blockingCount"
+  | "signed"
+  | "steps"
+> {
+  const rawStates = STEPS.map((def) => ({
+    def,
+    state: stateOf(files, overlay, def.id),
+  }));
+  const reopened = rawStates.filter((row) => row.state === "reopened").map((row) => row.def.id);
+  const todos = rawStates.filter((row) => row.state === "todo").map((row) => row.def.id);
+  const reviews = rawStates.filter((row) => row.state === "needsReview").map((row) => row.def.id);
+  const currentId = firstByOrder(reopened) ?? firstByOrder(todos) ?? firstByOrder(reviews);
+  const complete = rawStates.every((row) => row.state === "final" || row.state === "skipped");
+  const stage: ProjectStage = complete
+    ? overlay.signed === undefined ? "closing" : "done"
+    : (STEPS.find((step) => step.id === currentId)?.chapter ?? 1);
 
-export function workflowOf(
-  item: Omit<ContentSummary, "pipeline" | "workflow">,
-  overlay?: OverlayItem,
-): WorkflowStage {
-  if (anyPlatformPublished(item.publish)) return "live";
-  const recorded = item.videoRaw !== undefined || item.videoSubtitled !== undefined;
-  if (recorded) {
-    if (hasSubtitle(item as ContentSummary) && hasCover(item as ContentSummary)) return "publish";
-    return "finish";
-  }
-  if (item.studioPath !== undefined || overlay?.studioPath !== undefined) return "cut";
-  if (overlay?.waitingForExport === true) return "finish";
-  if (overlay?.readyToRecord === true) return "record";
-  return "idle";
-}
+  const steps: StepSummary[] = rawStates.map(({ def, state }) => ({
+    id: def.id,
+    name: def.name,
+    file: def.file,
+    chapter: def.chapter,
+    state: state === "todo" && def.id === currentId ? "current" : state,
+    skippable: isSkippable(def.id, skippableOverride),
+    hint: def.hint,
+  }));
 
-export function countsOf(items: readonly ContentSummary[]): LibraryCounts {
-  let cover = 0;
-  let subtitle = 0;
-  let article = 0;
-  for (const item of items) {
-    if (hasCover(item)) cover += 1;
-    if (hasSubtitle(item)) subtitle += 1;
-    if (item.hasArticle) article += 1;
-  }
-  return { total: items.length, cover, subtitle, article };
-}
-
-export function matchesFilter(item: ContentSummary, filter: ContentFilter): boolean {
-  if (filter === "cover") return hasCover(item);
-  if (filter === "subtitle") return hasSubtitle(item);
-  if (filter === "article") return item.hasArticle;
-  return true;
-}
-
-export function matchesQuery(item: ContentSummary, query: string): boolean {
-  const needle = query.trim().toLowerCase();
-  if (needle === "") return true;
-  return item.title.toLowerCase().includes(needle)
-    || item.id.toLowerCase().includes(needle)
-    || item.tags.some((tag) => tag.toLowerCase().includes(needle));
-}
-
-async function readJson(path: string): Promise<unknown> {
-  try {
-    return JSON.parse(await readFile(path, "utf8")) as unknown;
-  } catch {
-    return undefined;
-  }
-}
-
-function stringArrayField(value: unknown, key: string): string[] {
-  if (typeof value !== "object" || value === null) return [];
-  const field = (value as Record<string, unknown>)[key];
-  if (!Array.isArray(field)) return [];
-  return field.filter((item): item is string => typeof item === "string" && item.length > 0);
-}
-
-async function scanFolder(
-  libraryRoot: string,
-  folderName: string,
-  overlay: OverlayStore,
-): Promise<ContentSummary | undefined> {
-  const folderPath = join(libraryRoot, folderName);
-  const info = await stat(folderPath).catch(() => undefined);
-  if (info === undefined || !info.isDirectory()) return undefined;
-  if (SKIP_DIRS.has(folderName) || folderName.startsWith(".")) return undefined;
-
-  const entries = await readdir(folderPath, { withFileTypes: true });
-  const names = entries.map((entry) => entry.name);
-  const { date, title: folderTitle } = folderDateAndTitle(folderName);
-
-  const covers: ContentSummary["covers"] = {};
-  const cover3x4 = names.find((name) => name.endsWith("_3x4.png"));
-  const cover4x3 = names.find((name) => name.endsWith("_4x3.png"));
-  const cover16x9 = names.find((name) => name.endsWith("_16x9.png"));
-  if (cover3x4 !== undefined) covers["3x4"] = join(folderPath, cover3x4);
-  if (cover4x3 !== undefined) covers["4x3"] = join(folderPath, cover4x3);
-  if (cover16x9 !== undefined) covers["16x9"] = join(folderPath, cover16x9);
-
-  const subtitles: ContentSummary["subtitles"] = {};
-  const srt = names.find((name) => name.endsWith(".srt"));
-  const ass = names.find((name) => name.endsWith(".ass"));
-  if (srt !== undefined) subtitles.srt = join(folderPath, srt);
-  if (ass !== undefined) subtitles.ass = join(folderPath, ass);
-
-  const workDir = names.find((name) => name.endsWith(".subtitle-work"));
-  if (workDir !== undefined) {
-    const transcript = join(folderPath, workDir, "subtitle-transcript.json");
-    const fallback = join(folderPath, workDir, "transcript.json");
-    if (await fileExists(transcript)) subtitles.transcript = transcript;
-    else if (await fileExists(fallback)) subtitles.transcript = fallback;
-  }
-
-  let videoRaw: string | undefined;
-  let videoRawMtime = Number.NEGATIVE_INFINITY;
-  let videoSubtitled: string | undefined;
-  let videoSubtitledMtime = Number.NEGATIVE_INFINITY;
-  for (const name of names) {
-    if (!name.endsWith(".mp4") && !name.endsWith(".mov")) continue;
-    const path = join(folderPath, name);
-    const mtime = await fileMtime(path) ?? Number.NEGATIVE_INFINITY;
-    if (isSubtitledVideoName(name)) {
-      if (mtime >= videoSubtitledMtime) {
-        videoSubtitled = path;
-        videoSubtitledMtime = mtime;
-      }
-    } else if (mtime >= videoRawMtime) {
-      videoRaw = path;
-      videoRawMtime = mtime;
-    }
-  }
-
-  const packageName = pickPublishPackage(names);
-  const packagePath = packageName === undefined ? undefined : join(folderPath, packageName);
-  const packageJson = packagePath === undefined ? undefined : await readJson(packagePath);
-  const overlayTitle = overlay.items[folderName]?.title;
-  const title = overlayTitle ?? folderTitle;
-
-  const tags = [
-    ...stringArrayField(packageJson, "xhsTopics"),
-    ...stringArrayField(packageJson, "douyinTopics"),
-    ...stringArrayField(packageJson, "bilibiliTags"),
-    ...stringArrayField(packageJson, "wechatTags"),
-  ].filter((tag, index, all) => all.indexOf(tag) === index);
-
-  const folderDate = folderDateMs(date);
-  // The name date is the episode's stable identity: re-exporting the video or
-  // regenerating covers must not move it in the list or change its displayed
-  // time. Folders created on their name day keep the precise creation time
-  // (birthtime never changes); planned folders named for a future day keep
-  // that date.
-  const createdMs = info.birthtimeMs > 0 ? info.birthtimeMs : info.mtimeMs;
-  const recordedAt = folderDate === undefined
-    ? createdMs
-    : sameCalendarDay(folderDate, createdMs)
-      ? createdMs
-      : folderDate;
-
-  const overlayItem = overlay.items[folderName];
-  const studioInFolder = names.find((name) => name.endsWith(".screenstudio"));
-  const studioPath = overlayItem?.studioPath
-    ?? (studioInFolder === undefined ? undefined : join(folderPath, studioInFolder));
-
-  let articlePath: string | undefined;
-  if (names.includes(ARTICLE_DIR)) {
-    const articleNames = await readdir(join(folderPath, ARTICLE_DIR)).catch(() => []);
-    const articleFile = pickArticleFile(articleNames);
-    if (articleFile !== undefined) articlePath = join(folderPath, ARTICLE_DIR, articleFile);
-  }
-
-  const draft: Omit<ContentSummary, "pipeline" | "workflow"> = {
-    id: folderName,
-    folderPath,
-    title,
-    recordedAt,
-    createdMs,
-    covers,
-    subtitles,
-    hasPublishPackage: packageJson !== undefined,
-    hasArticle: articlePath !== undefined,
-    waitingForExport: overlayItem?.waitingForExport === true,
-    ...(overlayItem?.exportTimedOut === true ? { exportTimedOut: true } : {}),
-    tags,
-    ...(date === undefined ? {} : { date }),
-    ...(videoRaw === undefined ? {} : { videoRaw }),
-    ...(videoSubtitled === undefined ? {} : { videoSubtitled }),
-    ...(studioPath === undefined ? {} : { studioPath }),
-    ...(articlePath === undefined ? {} : { articlePath }),
-    publish: mergePublish(await readFolderPublish(folderPath, names), overlayItem?.publish),
-    burn: overlayItem?.burn ?? emptyBurn(),
-    subtitleJob: overlayItem?.subtitleJob ?? emptyBurn(),
-    coverJob: overlayItem?.coverJob ?? emptyBurn(),
-  };
-
+  const current = steps.find((step) => step.id === currentId);
+  const { pill, pillTone } = pillFor(stage, current);
+  const openPending = overlay.pending.filter((item) => !item.done);
   return {
-    ...draft,
-    pipeline: pipelineOf(draft),
-    workflow: workflowOf(draft, overlay.items[folderName]),
+    stage,
+    ...(currentId === undefined ? {} : { currentStep: currentId }),
+    ...(current?.name === undefined ? {} : { currentStepName: current.name }),
+    progressLine: progressLineFor(stage, current, steps),
+    pill,
+    pillTone,
+    pendingCount: openPending.length,
+    blockingCount: openPending.filter((item) => item.blocking).length,
+    ...(overlay.signed === undefined ? {} : { signed: overlay.signed }),
+    steps,
   };
 }
 
-async function fileExists(path: string): Promise<boolean> {
-  try {
-    await stat(path);
-    return true;
-  } catch {
-    return false;
-  }
+export function buildProjectSummary(
+  identity: {
+    id: string;
+    folderPath: string;
+    company: string;
+    date?: string;
+    createdMs: number;
+    updatedAt: string;
+  },
+  files: ReadonlySet<string>,
+  overlay: OverlayProject,
+  skippableOverride?: SkippableOverride,
+): ProjectSummary {
+  return {
+    ...identity,
+    ...summarizeProject(files, overlay, skippableOverride),
+  };
 }
 
-async function fileMtime(path: string | undefined): Promise<number | undefined> {
-  if (path === undefined) return undefined;
-  const info = await stat(path).catch(() => undefined);
-  return info?.mtimeMs;
+async function looksLikeProject(folderPath: string, folderName: string): Promise<boolean> {
+  if (isDatedProjectName(folderName)) return true;
+  const names = await readdir(folderPath).catch((): string[] => []);
+  return names.includes(FINAL_DIR) || names.includes(AGENTS_FILE);
 }
 
 export async function scanLibrary(
   libraryRoot: string,
   overlay: OverlayStore,
-): Promise<ContentSummary[]> {
+  skippableOverride?: SkippableOverride,
+): Promise<ProjectSummary[]> {
   const root = await stat(libraryRoot).catch(() => undefined);
   if (root === undefined || !root.isDirectory()) return [];
 
   const entries = await readdir(libraryRoot, { withFileTypes: true });
-  const items: ContentSummary[] = [];
+  const items: ProjectSummary[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    const item = await scanFolder(libraryRoot, entry.name, overlay);
-    if (item !== undefined) items.push(item);
+    if (SKIP_DIRS.has(entry.name) || entry.name.startsWith(".")) continue;
+    const folderPath = join(libraryRoot, entry.name);
+    if (!await looksLikeProject(folderPath, entry.name)) continue;
+    const info = await stat(folderPath).catch(() => undefined);
+    if (info === undefined || !info.isDirectory()) continue;
+    const { date, company } = folderDateAndCompany(entry.name);
+    const createdMs = info.birthtimeMs > 0 ? info.birthtimeMs : info.mtimeMs;
+    const project = overlay.projects[entry.name] ?? emptyOverlayProject();
+    const overlayMs = Date.parse(project.updatedAt);
+    const updatedMs = Number.isNaN(overlayMs) ? info.mtimeMs : Math.max(info.mtimeMs, overlayMs);
+    const identity = {
+      id: entry.name,
+      folderPath,
+      company,
+      createdMs,
+      updatedAt: new Date(updatedMs).toISOString(),
+      ...(date === undefined ? {} : { date }),
+    };
+    items.push(buildProjectSummary(
+      identity,
+      await listFinalFiles(folderPath),
+      project,
+      skippableOverride,
+    ));
   }
   items.sort((left, right) => {
-    if (left.recordedAt !== right.recordedAt) return right.recordedAt - left.recordedAt;
     if (left.createdMs !== right.createdMs) return right.createdMs - left.createdMs;
     return basename(right.folderPath).localeCompare(basename(left.folderPath), "zh");
   });
   return items;
 }
 
-export async function readTopicNote(folderPath: string): Promise<string> {
-  try {
-    return await readFile(join(folderPath, "topic.md"), "utf8");
-  } catch {
-    return "";
+export function matchProjectRef(
+  project: string,
+  items: readonly ProjectSummary[],
+): ProjectSummary | undefined {
+  const needle = project.trim();
+  if (needle === "") return undefined;
+  return items.find((item) =>
+    item.id === needle
+    || item.folderPath === needle
+    || item.company === needle
+  );
+}
+
+export function matchProjectByCwd(
+  cwd: string,
+  items: readonly ProjectSummary[],
+  libraryRoot: string,
+): ProjectSummary | undefined {
+  const under = projectIdUnderLibrary(cwd, libraryRoot);
+  if (under !== undefined) {
+    const found = items.find((item) => item.id === under);
+    if (found !== undefined) return found;
   }
+  return items.find((item) => pathInside(item.folderPath, cwd));
 }
 
-export async function writeTopicNote(folderPath: string, text: string): Promise<void> {
-  const path = join(folderPath, "topic.md");
-  if (text.trim() === "") {
-    await unlink(path).catch(() => undefined);
-    return;
-  }
-  const body = text.endsWith("\n") ? text : `${text}\n`;
-  await writeFile(path, body, "utf8");
-}
-
-export async function readScript(folderPath: string): Promise<string> {
-  try {
-    return await readFile(join(folderPath, "script.md"), "utf8");
-  } catch {
-    return "";
-  }
-}
-
-export async function writeScript(folderPath: string, text: string): Promise<void> {
-  const path = join(folderPath, "script.md");
-  if (text.trim() === "") {
-    await unlink(path).catch(() => undefined);
-    return;
-  }
-  const body = text.endsWith("\n") ? text : `${text}\n`;
-  await writeFile(path, body, "utf8");
-}
-
-export async function readArticle(path: string | undefined): Promise<string> {
-  if (path === undefined) return "";
-  try {
-    return await readFile(path, "utf8");
-  } catch {
-    return "";
-  }
-}
-
-export async function readPublishCopy(folderPath: string): Promise<string> {
-  const names = await readdir(folderPath).catch(() => []);
-  const packageName = pickPublishPackage(names);
-  if (packageName === undefined) return "";
-  const value = await readJson(join(folderPath, packageName));
-  if (typeof value !== "object" || value === null) return "";
-  const record = value as Record<string, unknown>;
-  const parts: string[] = [];
-  for (const key of [
-    "title",
-    "bilibiliDescription",
-    "douyinDescription",
-    "wechatDescription",
-  ]) {
-    const field = record[key];
-    if (typeof field === "string" && field.length > 0) parts.push(field);
-  }
-  return parts.join("\n\n");
-}
-
-export function formatCueClock(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds < 0) return "";
-  const total = Math.floor(seconds);
-  const hours = Math.floor(total / 3600);
-  const minutes = Math.floor((total % 3600) / 60);
-  const rest = total % 60;
-  if (hours > 0) {
-    return `${hours}:${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
-  }
-  return `${minutes}:${String(rest).padStart(2, "0")}`;
-}
-
-function cuesFromSegments(segments: unknown[]): SubtitleCue[] {
-  const cues: SubtitleCue[] = [];
-  for (const segment of segments) {
-    if (typeof segment !== "object" || segment === null) continue;
-    const row = segment as Record<string, unknown>;
-    const text = typeof row.text === "string" ? row.text.trim() : "";
-    if (text === "") continue;
-    const start = typeof row.start === "number"
-      ? row.start
-      : typeof row.startTime === "number" ? row.startTime : undefined;
-    const at = start === undefined ? undefined : formatCueClock(start);
-    cues.push(at === undefined || at === "" ? { text } : { text, at });
-  }
-  return cues;
-}
-
-export function cuesFromTranscript(value: unknown): SubtitleCue[] {
-  if (Array.isArray(value)) return cuesFromSegments(value);
-  if (typeof value !== "object" || value === null) return [];
-  const record = value as Record<string, unknown>;
-  if (Array.isArray(record.segments)) return cuesFromSegments(record.segments);
-  const text = typeof record.text === "string" ? record.text.trim() : "";
-  return text === "" ? [] : [{ text }];
-}
-
-const ASS_DRAWING = /\\p\d/;
-const ASS_VECTOR = /^(?:m|l|b)\s+-?\d/i;
-const ASS_SKIP_STYLES = new Set(["captionbox", "progresslabel", "progressfill"]);
-
-function assCueText(parts: readonly string[]): string | undefined {
-  const style = (parts[3] ?? "").trim().toLowerCase();
-  const name = (parts[4] ?? "").trim().toLowerCase();
-  if (ASS_SKIP_STYLES.has(style) || ASS_SKIP_STYLES.has(name)) return undefined;
-  const original = parts.slice(9).join(",");
-  if (ASS_DRAWING.test(original)) return undefined;
-  const text = original
-    .replace(/\{[^}]*\}/g, "")
-    .replace(/\\N/g, "\n")
-    .replace(/\\n/g, "\n")
-    .trim();
-  if (text === "" || ASS_VECTOR.test(text)) return undefined;
-  return text;
-}
-
-export function cuesFromAss(raw: string): SubtitleCue[] {
-  const cues: SubtitleCue[] = [];
-  for (const line of raw.replace(/^\uFEFF/, "").split(/\r?\n/)) {
-    if (!line.startsWith("Dialogue:")) continue;
-    const payload = line.slice("Dialogue:".length).trim();
-    const parts = payload.split(",");
-    if (parts.length < 10) continue;
-    const text = assCueText(parts);
-    if (text === undefined) continue;
-    const at = formatAssClock(parts[1] ?? "");
-    cues.push(at === undefined ? { text } : { text, at });
-  }
-  return cues;
-}
-
-function formatAssClock(stamp: string): string | undefined {
-  const matched = /^(\d+):(\d{2}):(\d{2})/.exec(stamp.trim());
-  if (matched === null || matched[1] === undefined || matched[2] === undefined || matched[3] === undefined) {
-    return undefined;
-  }
-  const hours = Number(matched[1]);
-  const minutes = matched[2];
-  const seconds = matched[3];
-  if (hours > 0) return `${hours}:${minutes}:${seconds}`;
-  return `${Number(minutes)}:${seconds}`;
-}
-
-export function cuesFromSrt(raw: string): SubtitleCue[] {
-  const blocks = raw.replace(/^\uFEFF/, "").split(/\n{2,}/);
-  const cues: SubtitleCue[] = [];
-  for (const block of blocks) {
-    const lines = block.split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== "");
-    let at: string | undefined;
-    const texts: string[] = [];
-    for (const line of lines) {
-      const stamp = /^(\d{2}):(\d{2}):(\d{2})[,.]/.exec(line);
-      if (stamp !== null) {
-        const hours = stamp[1];
-        const minutes = stamp[2];
-        const seconds = stamp[3];
-        if (hours !== undefined && minutes !== undefined && seconds !== undefined) {
-          at = hours === "00" ? `${Number(minutes)}:${seconds}` : `${Number(hours)}:${minutes}:${seconds}`;
-        }
-        continue;
-      }
-      if (/^\d+$/.test(line)) continue;
-      if (line.startsWith("Dialogue:") || line.startsWith("Style:") || line.startsWith("Format:")) continue;
-      texts.push(line.replace(/\{[^}]*\}/g, "").replace(/\\N/g, "\n"));
-    }
-    const text = texts.join("\n").trim();
-    if (text === "") continue;
-    cues.push(at === undefined ? { text } : { text, at });
-  }
-  return cues;
-}
-
-function subtitlePaths(item: ContentSummary): string[] {
-  return [
-    item.subtitles.srt,
-    item.subtitles.transcript,
-    item.subtitles.ass,
-  ].filter((path): path is string => path !== undefined);
-}
-
-export async function cuesFromFile(path: string): Promise<SubtitleCue[]> {
-  try {
-    const raw = await readFile(path, "utf8");
-    if (path.endsWith(".json")) return cuesFromTranscript(JSON.parse(raw) as unknown);
-    if (path.endsWith(".ass")) return cuesFromAss(raw);
-    return cuesFromSrt(raw);
-  } catch {
-    return [];
-  }
-}
-
-export async function readSubtitleCues(item: ContentSummary): Promise<SubtitleCue[]> {
-  for (const path of subtitlePaths(item)) {
-    const cues = await cuesFromFile(path);
-    if (cues.length > 0) return cues;
-  }
-  return [];
-}
-
-export async function readSubtitleText(item: ContentSummary): Promise<string> {
-  const cues = await readSubtitleCues(item);
-  return cues.map((cue) => cue.text).join("\n");
-}
-
-export function transcriptPlainText(value: unknown): string {
-  if (Array.isArray(value)) {
-    return cuesFromSegments(value).map((cue) => cue.text).join("\n");
-  }
-  if (typeof value !== "object" || value === null) return "";
-  const record = value as Record<string, unknown>;
-  const segments = record.segments;
-  if (!Array.isArray(segments)) {
-    return typeof record.text === "string" ? record.text : "";
-  }
-  return segments
-    .map((segment) => {
-      if (typeof segment !== "object" || segment === null) return "";
-      const text = (segment as Record<string, unknown>).text;
-      return typeof text === "string" ? text.trim() : "";
-    })
-    .filter((text) => text.length > 0)
-    .join("\n");
-}
-
-export function stripSubtitleMarkup(raw: string): string {
-  return raw
-    .replace(/^\uFEFF/, "")
-    .split(/\r?\n/)
-    .filter((line) => {
-      const trimmed = line.trim();
-      if (trimmed === "") return false;
-      if (/^\d+$/.test(trimmed)) return false;
-      if (/^\d{2}:\d{2}:\d{2}/.test(trimmed)) return false;
-      if (trimmed.startsWith("[")) return false;
-      if (trimmed.startsWith("Dialogue:") || trimmed.startsWith("Style:") || trimmed.startsWith("Format:")) {
-        return false;
-      }
-      return true;
-    })
-    .map((line) => line.replace(/\{[^}]*\}/g, "").replace(/\\N/g, "\n"))
-    .join("\n")
-    .trim();
-}
-
-export function coverPathOf(item: ContentSummary): string | undefined {
-  return item.covers["3x4"] ?? item.covers["4x3"] ?? item.covers["16x9"];
+export function matchProjectBySession(
+  sessionId: string,
+  overlay: OverlayStore,
+  items: readonly ProjectSummary[],
+): ProjectSummary | undefined {
+  if (sessionId.length === 0) return undefined;
+  const bound = items.filter((item) => overlay.projects[item.id]?.sessionIds.includes(sessionId));
+  if (bound.length === 0) return undefined;
+  return [...bound].sort((left, right) => {
+    const leftAt = overlay.projects[left.id]?.updatedAt ?? left.updatedAt;
+    const rightAt = overlay.projects[right.id]?.updatedAt ?? right.updatedAt;
+    return rightAt.localeCompare(leftAt);
+  })[0];
 }

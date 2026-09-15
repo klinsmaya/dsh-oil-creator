@@ -1,328 +1,146 @@
-export type ContentFilter = "all" | "cover" | "subtitle" | "article";
+import type { ChapterId, StepId } from "./steps.ts";
 
-export type PipelineStage = "raw" | "subtitled" | "covered" | "packaged";
+export type { ChapterId, StepId };
 
-export type WorkflowStage = "idle" | "record" | "cut" | "finish" | "publish" | "live";
+export type StepState = "todo" | "current" | "final" | "skipped" | "reopened" | "needsReview";
+export type ProjectStage = ChapterId | "closing" | "done";
+export type PillTone = "pending" | "success" | "warning";
 
-export type { PublishPlatform } from "./platforms.ts";
-import type { PublishPlatform } from "./platforms.ts";
-
-export type PublishMark = "unpublished" | "draft" | "published";
-
-export type PublishSource = "none" | "publisher" | "overlay" | "sync";
-
-export interface PublishMetrics {
-  views?: number;
-  likes?: number;
-  comments?: number;
-  syncedAt?: number;
+export interface PendingItem {
+  id: string;
+  step: StepId;
+  item: string;
+  blocking: boolean;
+  who?: string;
+  when?: string;
+  done: boolean;
+  createdAt: string;
+  doneAt?: string;
 }
 
-export interface PlatformPublish extends PublishMetrics {
-  status: PublishMark;
-  source: PublishSource;
-  url?: string;
-  remoteId?: string;
+export interface OverlayProject {
+  sessionIds: string[];
+  pending: PendingItem[];
+  skipped: Partial<Record<StepId, { reason: string; at: string }>>;
+  reopened: Partial<Record<StepId, { reason: string; at: string }>>;
+  needsReview: Partial<Record<StepId, { because: StepId; at: string }>>;
+  finalized: Partial<Record<StepId, { at: string }>>;
+  signed?: { by: string; at: string };
+  updatedAt: string;
 }
 
-export type ContentPublish = Record<PublishPlatform, PlatformPublish>;
-
-export type BurnStatus = "idle" | "running" | "done" | "error";
-
-export interface BurnJob {
-  status: BurnStatus;
-  startedAt?: number;
-  output?: string;
-  error?: string;
-  pid?: number;
+export interface OverlayStore {
+  version: 1;
+  libraryRoot?: string;
+  skippableSteps?: string[];
+  projects: Record<string, OverlayProject>;
 }
 
-export type MediaJob = BurnJob;
-
-export type SecretKind = "subtitle" | "cover";
-
-export interface SecretView {
-  kind: SecretKind;
-  ref: string;
-  configured: boolean;
-  writable: boolean;
-  source?: string;
+export interface StepSummary {
+  id: StepId;
+  name: string;
+  file: string;
+  chapter: ChapterId;
+  state: StepState;
+  skippable: boolean;
+  hint: string;
 }
 
-export interface CreatorSecrets {
-  subtitle: SecretView;
-  cover: SecretView;
-}
-
-export interface OverlayPublish extends PublishMetrics {
-  status: PublishMark;
-  url?: string;
-  remoteId?: string;
-}
-
-export interface SubtitleCue {
-  text: string;
-  at?: string;
-}
-
-export interface ContentCovers {
-  "3x4"?: string;
-  "4x3"?: string;
-  "16x9"?: string;
-}
-
-export interface ContentSubtitles {
-  srt?: string;
-  ass?: string;
-  transcript?: string;
-}
-
-export interface ContentSummary {
+export interface ProjectSummary {
   id: string;
   folderPath: string;
-  title: string;
+  company: string;
   date?: string;
-  recordedAt: number;
   createdMs: number;
-  videoRaw?: string;
-  videoSubtitled?: string;
-  covers: ContentCovers;
-  subtitles: ContentSubtitles;
-  hasPublishPackage: boolean;
-  hasArticle: boolean;
-  studioPath?: string;
-  waitingForExport: boolean;
-  exportTimedOut?: boolean;
-  articlePath?: string;
-  tags: string[];
-  pipeline: PipelineStage;
-  workflow: WorkflowStage;
-  publish: ContentPublish;
-  burn: BurnJob;
-  subtitleJob: MediaJob;
-  coverJob: MediaJob;
+  updatedAt: string;
+  stage: ProjectStage;
+  currentStep?: StepId;
+  currentStepName?: string;
+  progressLine: string;
+  pill: string;
+  pillTone: PillTone;
+  pendingCount: number;
+  blockingCount: number;
+  signed?: { by: string; at: string };
+  steps: StepSummary[];
 }
 
-export interface CreatorProfile {
-  enabledPlatforms: PublishPlatform[];
-}
+export type CapabilityState = "ready" | "missing";
 
-export interface LibrarySettings {
-  libraryRoot: string;
-  profile: CreatorProfile;
-  secrets: CreatorSecrets;
-  scriptRules?: string;
-}
-
-export type CreatorCapabilityState = "ready" | "missing" | "unsupported";
-
-export interface CreatorCapability {
-  state: CreatorCapabilityState;
+export interface Capability {
+  state: CapabilityState;
   required: boolean;
   detail: string;
   path?: string;
 }
 
-export interface CreatorCapabilities {
-  library: CreatorCapability;
-  screenStudio: CreatorCapability;
-  subtitleSkill: CreatorCapability;
-  subtitleCredential: CreatorCapability;
-  coverSkill: CreatorCapability;
-  coverCredential: CreatorCapability;
-  publishSync: CreatorCapability;
-  editingSkill: CreatorCapability;
-  publishSkill: CreatorCapability;
-  articleSkill: CreatorCapability;
+export interface DingzeCapabilities {
+  library: Capability;
 }
 
-export interface CreatorSetupStatus {
+export interface LibrarySettings {
+  libraryRoot: string;
+  skippableSteps: string[];
+}
+
+export interface DingzeSetupStatus {
   platform: NodeJS.Platform;
   dataDir: string;
   settings: LibrarySettings;
-  capabilities: CreatorCapabilities;
-  recommendations: string[];
+  capabilities: DingzeCapabilities;
 }
 
-export interface CreatorSetupRequest {
-  apply: boolean;
-  libraryRoot?: string;
-  enabledPlatforms?: PublishPlatform[];
-}
-
-export interface CreatorSetupResult {
-  applied: boolean;
-  proposal: Omit<CreatorSetupRequest, "apply">;
-  status: CreatorSetupStatus;
-}
-
-export interface LibraryCounts {
-  total: number;
-  cover: number;
-  subtitle: number;
-  article: number;
-}
-
-export interface ListContentsRequest {
+export interface ListProjectsRequest {
   query: string;
-  filter: ContentFilter;
 }
 
-export interface ListContentsResult {
+export interface ListProjectsResult {
   settings: LibrarySettings;
-  items: ContentSummary[];
-  counts: LibraryCounts;
+  items: ProjectSummary[];
   revision: number;
-}
-
-export interface IdRequest {
-  id: string;
-}
-
-export interface ContentDetail extends ContentSummary {
-  publishCopy: string;
-  topicNote: string;
-  script: string;
-  article: string;
-  secrets: CreatorSecrets;
-}
-
-export interface CoverThumbResult {
-  found: boolean;
-  mime: string;
-  base64: string;
-}
-
-export interface VideoPlaybackResult {
-  found: boolean;
-  url: string;
-  kind: "raw" | "subtitled";
-}
-
-export interface ArticleMediaResult {
-  found: boolean;
-  origin: string;
-}
-
-export interface SubtitleTextResult {
-  text: string;
-  cues: SubtitleCue[];
 }
 
 export interface SetLibraryRootRequest {
   path: string;
 }
 
-export interface CreateContentRequest {
-  title: string;
+export interface OpenFolderRequest {
+  path: string;
 }
 
-export interface CreateContentResult {
+export interface ProjectIdRequest {
   id: string;
-  folderPath: string;
 }
 
-export interface SetContentStageRequest {
-  id: string;
-  readyToRecord: boolean;
-}
-
-export interface BindStudioRequest {
+export interface ReadFileRequest {
   id: string;
   path: string;
 }
 
-export interface WaitExportRequest {
-  id: string;
-  timeoutMs?: number;
+export interface ReadFileResult {
+  path: string;
+  content: string;
 }
 
-export interface OverlayItem {
-  title?: string;
-  readyToRecord?: boolean;
-  studioPath?: string;
-  waitingForExport?: boolean;
-  exportTimedOut?: boolean;
-  publish?: Partial<Record<PublishPlatform, OverlayPublish>>;
-  burn?: BurnJob;
-  subtitleJob?: MediaJob;
-  coverJob?: MediaJob;
+export interface MaterialItem {
+  name: string;
+  path: string;
 }
 
-export interface SetPublishRequest {
-  id: string;
-  platform: PublishPlatform;
-  status: PublishMark;
-  url?: string;
+export interface ListMaterialsResult {
+  items: MaterialItem[];
 }
 
-export interface SubtitlePreviewResult {
-  url: string;
-  port: number;
+export interface ProjectDetail {
+  project: ProjectSummary;
+  pending: PendingItem[];
 }
 
-export interface SyncPublishRequest {
-  id?: string;
-  platform?: PublishPlatform;
-  force?: boolean;
+export interface ToolFailure {
+  ok: false;
+  code: string;
+  message: string;
+  detail?: unknown;
 }
 
-export interface SyncPublishResult {
-  matched: number;
-  cached?: boolean;
-  platforms: Array<{
-    platform: PublishPlatform;
-    count: number;
-    loginRequired?: boolean;
-    error?: string;
-  }>;
-}
-
-export interface OverlayStore {
-  schemaVersion: 1;
-  libraryRoot?: string;
-  profile?: CreatorProfile;
-  scriptRules?: string;
-  items: Record<string, OverlayItem>;
-}
-
-export type OrganizeReason = "add-date" | "readable-title" | "both";
-
-export interface OrganizeMove {
-  from: string;
-  to: string;
-  reason: OrganizeReason;
-}
-
-export interface OrganizeRequest {
-  apply: boolean;
-  ids: string[];
-}
-
-export interface OrganizePreview {
-  moves: OrganizeMove[];
-  unchanged: number;
-}
-
-export interface SetProfileRequest {
-  profile: CreatorProfile;
-}
-
-export interface SetScriptRulesRequest {
-  text: string;
-}
-
-export interface CreatorGuideResult {
-  guide: string;
-  status: CreatorSetupStatus;
-}
-
-export interface SetTopicNoteRequest {
-  id: string;
-  text: string;
-}
-
-export interface SetScriptRequest {
-  id: string;
-  text: string;
-}
+export type ToolSuccess<T extends object> = { ok: true } & T;

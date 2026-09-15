@@ -1,18 +1,23 @@
-import { defineTool, type ToolDefinition } from "@deepseek-ai/dsh-tools";
+import { defineTool, type ToolDefinition, type ToolRunContext } from "@deepseek-ai/dsh-tools";
 
-import { normalizeEnabledPlatforms } from "./overlay.ts";
-import { PUBLISH_PLATFORMS } from "./platforms.ts";
-import { isPublishMark, isPublishPlatform } from "./publishStatus.ts";
-import type { OilCreatorService } from "./service.ts";
-import type { CreatorProfile, PublishPlatform } from "./types.ts";
+import {
+  compactScope,
+  createProject,
+  finalizeStep,
+  guideText,
+  mutatePending,
+  projectStatus,
+  reopenStep,
+  signProject,
+  skipStep,
+} from "./ops.ts";
+import type { DingzeService } from "./service.ts";
 
 interface ToolsContext {
   tools: { register: (tool: ToolDefinition) => void };
 }
 
-function signalOf(exec: { signal: AbortSignal }): AbortSignal {
-  return exec.signal;
-}
+const JSON_VALUE = { type: "json" } as const;
 
 function compactText(title: string, detail: string): Array<{ type: "text"; text: string }> {
   return [{ type: "text", text: `${title}: ${detail}` }];
@@ -26,439 +31,260 @@ function present(title: string, rawInput: unknown): { card: "generic"; title: st
   return { card: "generic", title, kind: "other", rawInput };
 }
 
-const JSON_VALUE = { type: "json" } as const;
+function readStringProp(value: object, key: string): string | undefined {
+  if (!(key in value)) return undefined;
+  const found = Reflect.get(value, key);
+  return typeof found === "string" && found.length > 0 ? found : undefined;
+}
 
-export function registerCreatorTools(ctx: ToolsContext, service: OilCreatorService): void {
+export function scopeOf(exec: { agent?: object }): { cwd: string; sessionId?: string } {
+  const cwd = process.cwd();
+  const agent = exec.agent;
+  if (agent === undefined) return { cwd };
+  const nested = Reflect.get(agent, "session");
+  const session = typeof nested === "object" && nested !== null ? nested : undefined;
+  const sessionId = readStringProp(agent, "sessionId")
+    ?? readStringProp(agent, "id")
+    ?? (session === undefined ? undefined : readStringProp(session, "id"));
+  return sessionId === undefined ? { cwd } : { cwd, sessionId };
+}
+
+function hostOf(service: DingzeService) {
+  return {
+    dataDir: service.dataDir,
+    libraryRoot: service.libraryRoot,
+    skippableOverride: service.skippableOverride,
+    onWrite: () => {
+      service.invalidateCatalog();
+    },
+  };
+}
+
+export function registerDingzeTools(ctx: ToolsContext, service: DingzeService): void {
   ctx.tools.register(defineTool({
-    name: "oil_creator_guide",
+    name: "dz_status",
     description:
-      "Self-bootstrap guide for this plugin. Call this when the user asks what this plugin does, "
-      + "how to use it, or when you are unsure which step comes next. "
-      + "Returns the full workflow (library, script rules, subtitles, covers, publish, data sync) "
-      + "with the live capability status, including whether Ego Browser is available for auto-publish and data collection.",
+      "读取当前定责项目的进度、待补、需复核和跳过项。开场或推进前先调用。"
+      + "省略 project 时：cwd 在项目内则用该项目，否则用 overlay 绑定的当前会话。",
+    parameters: {
+      project: { type: "string", description: "项目文件夹名、公司名或路径。省略则按 cwd / 会话解析。" },
+    },
+    output: {
+      schema: JSON_VALUE,
+      render: (_args, value) => {
+        const result = value as { ok?: boolean; nextAction?: string; code?: string };
+        if (result.ok !== true) return compactText("Status", result.code ?? "failed");
+        return compactText("Status", result.nextAction ?? "ok");
+      },
+    },
+    presentCall: (args) => present("定责进度", args),
+    async execute(args, exec) {
+      const scope = scopeOf(exec);
+      return asJson(await projectStatus(hostOf(service), compactScope({
+        project: args.project,
+        cwd: scope.cwd,
+        sessionId: scope.sessionId,
+      })));
+    },
+  }));
+
+  ctx.tools.register(defineTool({
+    name: "dz_finalize",
+    description:
+      "把某一步写入定版/。定版前必须先 apply=false 预览将要写入的文件；"
+      + "只有用户明确点头后才允许 apply=true。"
+      + "省略 content 且文件已在时表示复核通过，只清 needsReview。"
+      + "省略 content 且文件不在时返回 content_required。"
+      + "校验顺序：unknown_step → order_violation → blocking_pending → content_required。",
+    parameters: {
+      step: { type: "string", required: true, description: "步骤编号，如 S1-00。" },
+      content: { type: "string", description: "定版正文。复核已有文件时可省略。" },
+      apply: { type: "boolean", description: "false 只预览，true 才写入。默认 false。" },
+      project: { type: "string", description: "项目文件夹名、公司名或路径。" },
+    },
+    output: {
+      schema: JSON_VALUE,
+      render: (_args, value) => {
+        const result = value as { ok?: boolean; apply?: boolean; stepName?: string; code?: string };
+        if (result.ok !== true) return compactText("Finalize", result.code ?? "failed");
+        return compactText(
+          "Finalize",
+          `${result.apply === true ? "已定版" : "预览"} ${result.stepName ?? ""}`.trim(),
+        );
+      },
+    },
+    presentCall: (args) => present(args.apply === true ? "定版" : "预览定版", args),
+    async execute(args, exec) {
+      const scope = scopeOf(exec);
+      return asJson(await finalizeStep(hostOf(service), {
+        step: args.step ?? "",
+        ...compactScope({
+          project: args.project,
+          cwd: scope.cwd,
+          sessionId: scope.sessionId,
+        }),
+        ...(args.content === undefined ? {} : { content: args.content }),
+        ...(args.apply === undefined ? {} : { apply: args.apply }),
+      }));
+    },
+  }));
+
+  ctx.tools.register(defineTool({
+    name: "dz_pending",
+    description:
+      "管理待补：add / update / resolve / list。"
+      + "卡点待补会挡住定版。省略 project 时按 cwd 或当前会话解析。",
+    parameters: {
+      action: { type: "string", required: true, description: "add、update、resolve 或 list。" },
+      id: { type: "string", description: "update / resolve 时的待补 id。" },
+      step: { type: "string", description: "add / update 时的步骤编号。" },
+      item: { type: "string", description: "待补内容。" },
+      blocking: { type: "boolean", description: "是否卡点。卡点会挡住定版。" },
+      who: { type: "string", description: "谁来补。" },
+      when: { type: "string", description: "什么时候补。" },
+      project: { type: "string", description: "项目文件夹名、公司名或路径。" },
+    },
+    output: {
+      schema: JSON_VALUE,
+      render: (_args, value) => {
+        const result = value as { ok?: boolean; action?: string; pending?: unknown[]; code?: string };
+        if (result.ok !== true) return compactText("Pending", result.code ?? "failed");
+        const count = Array.isArray(result.pending) ? result.pending.length : 0;
+        return compactText("Pending", `${result.action ?? "list"} ${count}`);
+      },
+    },
+    presentCall: (args) => present("待补", args),
+    async execute(args, exec) {
+      const scope = scopeOf(exec);
+      return asJson(await mutatePending(hostOf(service), {
+        action: args.action ?? "",
+        ...compactScope({
+          project: args.project,
+          cwd: scope.cwd,
+          sessionId: scope.sessionId,
+        }),
+        ...(args.id === undefined ? {} : { id: args.id }),
+        ...(args.step === undefined ? {} : { step: args.step }),
+        ...(args.item === undefined ? {} : { item: args.item }),
+        ...(args.blocking === undefined ? {} : { blocking: args.blocking }),
+        ...(args.who === undefined ? {} : { who: args.who }),
+        ...(args.when === undefined ? {} : { when: args.when }),
+      }));
+    },
+  }));
+
+  ctx.tools.register(defineTool({
+    name: "dz_create_project",
+    description: "按公司名新建定责项目文件夹，并绑定当前会话。公司名必填。",
+    parameters: {
+      company: { type: "string", required: true, description: "公司名。" },
+    },
+    output: {
+      schema: JSON_VALUE,
+      render: (_args, value) => {
+        const result = value as { ok?: boolean; project?: { company?: string }; code?: string };
+        if (result.ok !== true) return compactText("Create", result.code ?? "failed");
+        return compactText("Create", result.project?.company ?? "ok");
+      },
+    },
+    presentCall: (args) => present("新建定责项目", args),
+    async execute(args, exec) {
+      const sessionId = scopeOf(exec).sessionId;
+      return asJson(await createProject(hostOf(service), {
+        company: args.company ?? "",
+        ...(sessionId === undefined ? {} : { sessionId }),
+      }));
+    },
+  }));
+
+  ctx.tools.register(defineTool({
+    name: "dz_skip",
+    description: "跳过可跳过的步骤，并记下原因。不可跳过返回 step_not_skippable；已定版返回 already_final。",
+    parameters: {
+      step: { type: "string", required: true, description: "步骤编号。" },
+      reason: { type: "string", description: "跳过原因，默认待补。" },
+      project: { type: "string", description: "项目文件夹名、公司名或路径。" },
+    },
+    output: {
+      schema: JSON_VALUE,
+      render: (_args, value) => {
+        const result = value as { ok?: boolean; stepName?: string; code?: string };
+        if (result.ok !== true) return compactText("Skip", result.code ?? "failed");
+        return compactText("Skip", `跳过 · ${result.stepName ?? "待补"}`);
+      },
+    },
+    presentCall: (args) => present("跳过", args),
+    async execute(args, exec) {
+      const scope = scopeOf(exec);
+      return asJson(await skipStep(hostOf(service), {
+        step: args.step ?? "",
+        ...compactScope({ project: args.project, cwd: scope.cwd, sessionId: scope.sessionId }),
+        ...(args.reason === undefined ? {} : { reason: args.reason }),
+      }));
+    },
+  }));
+
+  ctx.tools.register(defineTool({
+    name: "dz_reopen",
+    description: "把已定版的一步标成改版中，并给下游已定版步骤记上需复核。用户明确要改版时才调用。",
+    parameters: {
+      step: { type: "string", required: true, description: "步骤编号。" },
+      reason: { type: "string", description: "改版原因。" },
+      project: { type: "string", description: "项目文件夹名、公司名或路径。" },
+    },
+    output: {
+      schema: JSON_VALUE,
+      render: (_args, value) => {
+        const result = value as { ok?: boolean; stepName?: string; code?: string };
+        if (result.ok !== true) return compactText("Reopen", result.code ?? "failed");
+        return compactText("Reopen", result.stepName ?? "ok");
+      },
+    },
+    presentCall: (args) => present("改版", args),
+    async execute(args, exec) {
+      const scope = scopeOf(exec);
+      return asJson(await reopenStep(hostOf(service), {
+        step: args.step ?? "",
+        ...compactScope({ project: args.project, cwd: scope.cwd, sessionId: scope.sessionId }),
+        ...(args.reason === undefined ? {} : { reason: args.reason }),
+      }));
+    },
+  }));
+
+  ctx.tools.register(defineTool({
+    name: "dz_sign",
+    description: "责任书签约。只有全部步骤已定版或跳过、且责任书文件存在时才能签，否则 not_ready。",
+    parameters: {
+      by: { type: "string", description: "签约人。" },
+      project: { type: "string", description: "项目文件夹名、公司名或路径。" },
+    },
+    output: {
+      schema: JSON_VALUE,
+      render: (_args, value) => {
+        const result = value as { ok?: boolean; project?: { stage?: string }; code?: string };
+        if (result.ok !== true) return compactText("Sign", result.code ?? "failed");
+        return compactText("Sign", result.project?.stage === "done" ? "已收官" : "ok");
+      },
+    },
+    presentCall: (args) => present("签约", args),
+    async execute(args, exec) {
+      const scope = scopeOf(exec);
+      return asJson(await signProject(hostOf(service), {
+        ...compactScope({ project: args.project, cwd: scope.cwd, sessionId: scope.sessionId }),
+        ...(args.by === undefined ? {} : { by: args.by }),
+      }));
+    },
+  }));
+
+  ctx.tools.register(defineTool({
+    name: "dz_guide",
+    description: "工作台用法。用户问这个插件做什么、怎么用，或你不确定下一步时调用。",
     parameters: {},
     output: {
       schema: JSON_VALUE,
-      render: (_args, value) => {
-        const result = value as { status?: { capabilities?: Record<string, { state?: string }> } };
-        const capabilities = Object.values(result.status?.capabilities ?? {});
-        const ready = capabilities.filter((item) => item.state === "ready").length;
-        return compactText("Guide", `${ready}/${capabilities.length} capabilities ready`);
-      },
+      render: () => compactText("Guide", "定责工作台"),
     },
-    presentCall: (args) => present("Creator guide", args),
-    execute: (_args, exec) => service.getCreatorGuide(signalOf(exec)).then(asJson),
-  }));
-
-  ctx.tools.register(defineTool({
-    name: "oil_script_rules",
-    description:
-      "Read or update the creator's script rules (persona): tone, structure, audience, and taboos "
-      + "that every script.md must follow. Omit text to read. Send text to save. Empty text clears. "
-      + "Ask the user about their persona before writing rules for the first time; merge new long-term "
-      + "preferences into the existing rules instead of replacing them.",
-    parameters: {
-      text: { type: "string", description: "Full script rules text. Omit to read. Empty string clears." },
-    },
-    output: {
-      schema: JSON_VALUE,
-      render: (_args, value) => {
-        const settings = value as { scriptRules?: string };
-        return compactText("Script rules", settings.scriptRules === undefined ? "not set" : "saved");
-      },
-    },
-    presentCall: (args) => present("Script rules", args),
-    async execute(args, exec) {
-      const signal = signalOf(exec);
-      if (typeof args.text !== "string") {
-        return asJson(await service.getSettings({}, signal));
-      }
-      return asJson(await service.setScriptRules({ text: args.text }, signal));
-    },
-  }));
-
-  ctx.tools.register(defineTool({
-    name: "oil_creator_setup",
-    description:
-      "Inspect the creator workspace, optional local capabilities, credential status, and current configuration. "
-      + "Omit fields for a read-only diagnosis. Proposed changes are previewed unless apply=true. "
-      + "Only use apply=true after the user confirms the exact directory and enabled platform changes.",
-    parameters: {
-      apply: { type: "boolean", description: "False previews changes. True saves them after user confirmation." },
-      libraryRoot: { type: "string", description: "Existing absolute content directory, or a path starting with ~/." },
-      enabledPlatforms: {
-        type: "array",
-        items: { type: "string", enum: PUBLISH_PLATFORMS },
-        description: "Complete list of enabled platforms. Empty disables all platforms.",
-      },
-    },
-    output: {
-      schema: JSON_VALUE,
-      render: (_args, value) => {
-        const result = value as {
-          applied?: boolean;
-          status?: { capabilities?: Record<string, { state?: string }> };
-        };
-        const capabilities = Object.values(result.status?.capabilities ?? {});
-        const ready = capabilities.filter((item) => item.state === "ready").length;
-        return compactText(result.applied ? "Setup applied" : "Setup checked", `${ready}/${capabilities.length} capabilities ready`);
-      },
-    },
-    presentCall: (args) => present("Creator setup", args),
-    async execute(args, exec) {
-      const request = {
-        apply: args.apply === true,
-        ...(typeof args.libraryRoot === "string" ? { libraryRoot: args.libraryRoot } : {}),
-        ...(Array.isArray(args.enabledPlatforms)
-          ? { enabledPlatforms: normalizeEnabledPlatforms(args.enabledPlatforms) }
-          : {}),
-      };
-      return asJson(await service.configureCreator(request, signalOf(exec)));
-    },
-  }));
-
-  ctx.tools.register(defineTool({
-    name: "oil_create_content",
-    description:
-      "Create an empty dated library folder named YYYY-MM-DD_title using today's date and a readable title.",
-    parameters: {
-      title: { type: "string", required: true, description: "Episode title. Hyphens become spaces." },
-    },
-    output: {
-      schema: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          id: { type: "string", required: true },
-          folderPath: { type: "string", required: true },
-        },
-      },
-      render: (_args, value) => compactText("Created", value.id),
-    },
-    presentCall: (args) => present("Create content", args),
-    execute: (args, exec) => {
-      if (args.title.trim() === "") throw new Error("title is required");
-      return service.createContent({ title: args.title }, signalOf(exec));
-    },
-  }));
-
-  ctx.tools.register(defineTool({
-    name: "oil_update_content",
-    description:
-      "Write overlay-only marks for one episode: readyToRecord, bind a Screen Studio project, "
-      + "or set a platform publish status. To change topic.md or script.md, write those files "
-      + "in the episode folder with the built-in file tools.",
-    parameters: {
-      id: { type: "string", required: true, description: "Folder id." },
-      readyToRecord: { type: "boolean", description: "True moves idle content to 待录制." },
-      studioPath: { type: "string", description: "Bind a .screenstudio project to this episode." },
-      publishPlatform: {
-        type: "string",
-        enum: PUBLISH_PLATFORMS,
-        description: "Platform to mark. Pair with publishStatus.",
-      },
-      publishStatus: {
-        type: "string",
-        enum: ["unpublished", "draft", "published"],
-        description: "Per-platform publish mark stored in the plugin overlay.",
-      },
-      publishUrl: { type: "string", description: "Optional live URL when status is published." },
-    },
-    output: {
-      schema: JSON_VALUE,
-      render: (_args, value) => {
-        const record = value as { title?: string; id?: string };
-        return compactText("Updated", record.title || record.id || "");
-      },
-    },
-    presentCall: (args) => present("Update content", args),
-    async execute(args, exec) {
-      const signal = signalOf(exec);
-      if (args.id === "") throw new Error("id is required");
-      if (args.readyToRecord !== undefined) {
-        await service.setContentStage({ id: args.id, readyToRecord: args.readyToRecord }, signal);
-      }
-      if (args.studioPath !== undefined && args.studioPath !== "") {
-        await service.bindStudio({ id: args.id, path: args.studioPath }, signal);
-      }
-      const hasPlatform = args.publishPlatform !== undefined;
-      const hasStatus = args.publishStatus !== undefined;
-      if (hasPlatform !== hasStatus) {
-        throw new Error("publishPlatform and publishStatus must be sent together");
-      }
-      if (isPublishPlatform(args.publishPlatform) && isPublishMark(args.publishStatus)) {
-        await service.setPublish(
-          args.publishUrl === undefined
-            ? { id: args.id, platform: args.publishPlatform, status: args.publishStatus }
-            : { id: args.id, platform: args.publishPlatform, status: args.publishStatus, url: args.publishUrl },
-          signal,
-        );
-      }
-      return asJson(await service.getContent({ id: args.id }, signal));
-    },
-  }));
-
-  ctx.tools.register(defineTool({
-    name: "oil_creator_profile",
-    description:
-      "Read or update the list of enabled publishing platforms. "
-      + "Omit the list to read. Send the complete list to replace it.",
-    parameters: {
-      enabledPlatforms: {
-        type: "array",
-        items: { type: "string", enum: PUBLISH_PLATFORMS },
-        description: "Complete list of enabled platforms. Empty disables all platforms.",
-      },
-    },
-    output: {
-      schema: JSON_VALUE,
-      render: () => compactText("Profile", "saved"),
-    },
-    presentCall: (args) => present("Creator profile", args),
-    async execute(args, exec) {
-      const signal = signalOf(exec);
-      const current = (await service.getSettings({}, signal)).profile;
-      if (!Array.isArray(args.enabledPlatforms)) return asJson(current);
-      const next: CreatorProfile = {
-        enabledPlatforms: normalizeEnabledPlatforms(args.enabledPlatforms),
-      };
-      return asJson((await service.setProfile({ profile: next }, signal)).profile);
-    },
-  }));
-
-  ctx.tools.register(defineTool({
-    name: "oil_organize_library",
-    description:
-      "Preview or apply library folder cleanup to YYYY-MM-DD_readable title. "
-      + "Adds a date from the recording/folder time when missing, and turns hyphens/underscores in titles into spaces. "
-      + "Never deletes files. apply=false (default) only previews. Pass ids to limit the batch.",
-    parameters: {
-      apply: { type: "boolean", description: "False previews. True renames folders." },
-      ids: {
-        type: "array",
-        items: { type: "string" },
-        description: "Optional folder ids to organize. Empty means the whole library.",
-      },
-    },
-    output: {
-      schema: JSON_VALUE,
-      render: (_args, value) => {
-        const record = value as { moves?: unknown[] };
-        const moves = Array.isArray(record.moves) ? record.moves : [];
-        return compactText("Organize", `${moves.length} moves`);
-      },
-    },
-    presentCall: (args) => present("Organize library", args),
-    execute: async (args, exec) => asJson(await service.organizeLibrary({
-      apply: args.apply === true,
-      ids: args.ids ?? [],
-    }, signalOf(exec))),
-  }));
-
-  ctx.tools.register(defineTool({
-    name: "oil_sync_publish",
-    description:
-      "Sync published titles, URLs, and counts from logged-in creator dashboards. "
-      + "Pass id to update one episode only and stop paging once that title is found. "
-      + "Omit id to match the whole library and collect every page. "
-      + "Requires Ego Lite and an already-logged-in creator session. "
-      + "Repeats within 90 seconds reuse the last snapshot.",
-    parameters: {
-      id: {
-        type: "string",
-        description: "Folder id of one episode. Omit to sync the whole library.",
-      },
-      platform: {
-        type: "string",
-        enum: PUBLISH_PLATFORMS,
-        description: "Collect only this platform. Omit to visit all enabled platforms.",
-      },
-      force: {
-        type: "boolean",
-        description: "Skip the 90-second cache and open creator pages again.",
-      },
-    },
-    output: {
-      schema: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          matched: { type: "integer", required: true },
-          platforms: { type: "json", required: true },
-          cached: { type: "boolean" },
-        },
-      },
-      render: (_args, value) => compactText("Sync publish", `${value.matched} matched`),
-    },
-    presentCall: (args) => present("Sync publish", args),
-    execute: (args, exec) => {
-      const request: {
-        id?: string;
-        platform?: PublishPlatform;
-        force?: boolean;
-      } = {};
-      if (args.id !== undefined && args.id !== "") request.id = args.id;
-      if (isPublishPlatform(args.platform)) request.platform = args.platform;
-      if (args.force === true) request.force = true;
-      return service.syncPublish(request, signalOf(exec));
-    },
-  }));
-
-  ctx.tools.register(defineTool({
-    name: "oil_open_studio",
-    description:
-      "Open the bound Screen Studio project for this episode so the user can review and export.",
-    parameters: {
-      id: { type: "string", required: true, description: "Folder id." },
-    },
-    output: {
-      schema: JSON_VALUE,
-      render: (_args, value) => {
-        const record = value as { title?: string; id?: string };
-        return compactText("Open Studio", record.title || record.id || "");
-      },
-    },
-    presentCall: (args) => present("Open Studio", args),
-    execute: async (args, exec) => {
-      if (args.id === "") throw new Error("id is required");
-      return asJson(await service.openStudio({ id: args.id }, signalOf(exec)));
-    },
-  }));
-
-  ctx.tools.register(defineTool({
-    name: "oil_wait_export",
-    description:
-      "Start watching the episode folder for a finished MP4/MOV (Screen Studio export) and return immediately. "
-      + "When the file is stable, the folder has the video and waitingForExport clears. "
-      + "If the wait times out, waitingForExport stays and exportTimedOut is true. "
-      + "Do not block this call. After starting, poll files or getContent instead of waiting here.",
-    parameters: {
-      id: { type: "string", required: true, description: "Folder id." },
-      timeoutMs: { type: "integer", description: "Give up after this many milliseconds. Default 2 hours." },
-    },
-    output: {
-      schema: JSON_VALUE,
-      render: (_args, value) => {
-        const record = value as {
-          videoRaw?: string;
-          videoSubtitled?: string;
-          waitingForExport?: boolean;
-          exportTimedOut?: boolean;
-        };
-        const video = record.videoRaw || record.videoSubtitled;
-        return compactText(
-          "Export",
-          video ? "ready" : record.exportTimedOut === true ? "timed out" : record.waitingForExport ? "watching" : "still waiting",
-        );
-      },
-    },
-    presentCall: (args) => present("Wait for export", args),
-    execute: async (args, exec) => {
-      if (args.id === "") throw new Error("id is required");
-      return asJson(await service.waitForExport(
-        args.timeoutMs === undefined ? { id: args.id } : { id: args.id, timeoutMs: args.timeoutMs },
-        signalOf(exec),
-      ));
-    },
-  }));
-
-  ctx.tools.register(defineTool({
-    name: "oil_open_subtitle_preview",
-    description:
-      "Open the oil-subtitle preview editor in the browser for this episode (video + editable cues).",
-    parameters: {
-      id: { type: "string", required: true, description: "Folder id." },
-    },
-    output: {
-      schema: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          url: { type: "string", required: true },
-          port: { type: "integer", required: true },
-        },
-      },
-      render: (_args, value) => compactText("Subtitle preview", value.url),
-    },
-    presentCall: (args) => present("Subtitle preview", args),
-    execute: (args, exec) => {
-      if (args.id === "") throw new Error("id is required");
-      return service.openSubtitlePreview({ id: args.id }, signalOf(exec));
-    },
-  }));
-
-  ctx.tools.register(defineTool({
-    name: "oil_burn_subtitles",
-    description:
-      "Burn the current oil-subtitle draft onto the raw video after the user has previewed and confirmed it. "
-      + "Do not call this before oil_open_subtitle_preview (or the preview opened by oil_generate_subtitles). "
-      + "Returns immediately. When finished, the episode folder has a *_subtitled.mp4.",
-    parameters: {
-      id: { type: "string", required: true, description: "Folder id." },
-    },
-    output: {
-      schema: JSON_VALUE,
-      render: (_args, value) => {
-        const record = value as { burn?: { status?: string } };
-        return compactText("Burn", record.burn?.status || "started");
-      },
-    },
-    presentCall: (args) => present("Burn subtitles", args),
-    execute: async (args, exec) => {
-      if (args.id === "") throw new Error("id is required");
-      return asJson(await service.startSubtitleBurn({ id: args.id }, signalOf(exec)));
-    },
-  }));
-
-  ctx.tools.register(defineTool({
-    name: "oil_generate_subtitles",
-    description:
-      "Run the oil-subtitle draft workflow: transcribe, auto-review, and lay out captions. "
-      + "Does not burn. When it finishes, a preview editor opens; wait for the user to proofread, then call oil_burn_subtitles. "
-      + "Requires DASHSCOPE_API_KEY in Settings → Plugins → 内容工作台. "
-      + "Returns immediately. Completion is subtitle-transcript.json / subtitle-manifest.json, not *_subtitled.mp4.",
-    parameters: {
-      id: { type: "string", required: true, description: "Folder id." },
-    },
-    output: {
-      schema: JSON_VALUE,
-      render: (_args, value) => {
-        const record = value as { subtitleJob?: { status?: string } };
-        return compactText("Subtitles", record.subtitleJob?.status || "started");
-      },
-    },
-    presentCall: (args) => present("Generate subtitles", args),
-    execute: async (args, exec) => {
-      if (args.id === "") throw new Error("id is required");
-      return asJson(await service.startSubtitleGenerate({ id: args.id }, signalOf(exec)));
-    },
-  }));
-
-  ctx.tools.register(defineTool({
-    name: "oil_generate_cover",
-    description:
-      "Generate 3x4 / 4x3 / 16x9 covers with oil-cover. "
-      + "Extract a cover title first from the episode script or subtitles (oil-cover rule: do not leave this to the image model). "
-      + "Pass that title. Requires ZENMUX_API_KEY in Settings → Plugins → 内容工作台. "
-      + "Returns immediately. When finished, the episode folder has *_3x4.png / *_4x3.png / *_16x9.png.",
-    parameters: {
-      id: { type: "string", required: true, description: "Folder id." },
-      title: { type: "string", description: "Cover headline extracted from the episode. Folder name is used only if omitted." },
-    },
-    output: {
-      schema: JSON_VALUE,
-      render: (_args, value) => {
-        const record = value as { coverJob?: { status?: string } };
-        return compactText("Cover", record.coverJob?.status || "started");
-      },
-    },
-    presentCall: (args) => present("Generate cover", args),
-    execute: async (args, exec) => {
-      if (args.id === "") throw new Error("id is required");
-      return asJson(await service.startCoverGenerate({
-        id: args.id,
-        ...(typeof args.title === "string" && args.title.trim() !== "" ? { title: args.title } : {}),
-      }, signalOf(exec)));
-    },
+    presentCall: (args) => present("工作台用法", args),
+    execute: async () => asJson({ ok: true, text: guideText(service.libraryRoot) }),
   }));
 }
