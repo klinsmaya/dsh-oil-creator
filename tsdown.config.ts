@@ -7,6 +7,8 @@ import { defineConfig } from "tsdown";
 const PLUGIN_ID = "dsh-oil-creator";
 const CSS_PREFIX = "\0dsh-oil-creator-css:";
 const CSS_SUFFIX = ".mjs";
+const HOST_EXTERNALS = ["@deepseek-ai/dsh-tools"] as const;
+
 const CLIENT_EXTERNALS = [
   "react",
   "react/jsx-runtime",
@@ -56,6 +58,7 @@ export default defineConfig([
     fixedExtension: false,
     dts: false,
     clean: false,
+    deps: { neverBundle: [...HOST_EXTERNALS] },
   },
   {
     name: `${PLUGIN_ID}/typert`,

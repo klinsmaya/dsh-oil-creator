@@ -32,6 +32,8 @@ describe("DeepSeek Harness bundle packaging", () => {
         bundle?: { patch?: string };
         client?: { inject?: string[] };
       };
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
       peerDependencies?: Record<string, string>;
       repository?: { type?: string; url?: string };
       bugs?: { url?: string };
@@ -76,6 +78,9 @@ describe("DeepSeek Harness bundle packaging", () => {
       .toContain("0.1.0-rc.7");
     expect(manifest.peerDependencies?.["@deepseek-ai/dsh-client-ui-settings-plugins"])
       .toContain("0.1.0-rc.7");
+    expect(manifest.dependencies).not.toHaveProperty("@deepseek-ai/dsh-tools");
+    expect(manifest.peerDependencies?.["@deepseek-ai/dsh-tools"]).toBe("0.1.0-rc.6 || 0.1.0-rc.7");
+    expect(manifest.devDependencies?.["@deepseek-ai/dsh-tools"]).toBe("0.1.0-rc.7");
     expect(patch).toMatch(/^- id: ui-sidebar\n  disabled: true$/m);
     expect(patch).toMatch(/^- insert:\n    - id: dsh-oil-creator\n      name: dsh-oil-creator$/m);
     expect(copyInplace).not.toContain(".dsh/profiles");
@@ -156,6 +161,15 @@ describe("DeepSeek Harness bundle packaging", () => {
       expect(
         [...packedFiles].some((entry) => entry.startsWith("assets/readme/source/")),
       ).toBe(false);
+      expect(
+        [...packedFiles].some((entry) => entry.includes("dsh-tools")),
+      ).toBe(false);
+
+      const hostBundle = readFileSync(resolve(root, "lib/index.js"), "utf8");
+      expect(hostBundle).toContain('from "@deepseek-ai/dsh-tools"');
+      expect(hostBundle).not.toContain("dsh-tools.scheduler");
+      const typertBundle = readFileSync(resolve(root, "lib/typert.host.js"), "utf8");
+      expect(typertBundle).not.toContain("dsh-tools.scheduler");
     } finally {
       rmSync(packDirectory, { recursive: true, force: true });
     }

@@ -172,6 +172,17 @@ function checkRelease(root) {
   if (manifest.dsh?.bundle?.patch !== "./cordis.patch.yml") {
     addFailure("缺少可随包携带的 dsh.bundle.patch");
   }
+  if (manifest.dependencies?.["@deepseek-ai/dsh-tools"] !== undefined) {
+    addFailure("@deepseek-ai/dsh-tools 不能作为运行依赖：安装后会在 profile 再放一份工具运行时");
+  }
+  const toolPeer = manifest.peerDependencies?.["@deepseek-ai/dsh-tools"];
+  if (
+    typeof toolPeer !== "string"
+    || !toolPeer.includes("0.1.0-rc.6")
+    || !toolPeer.includes("0.1.0-rc.7")
+  ) {
+    addFailure("@deepseek-ai/dsh-tools 必须声明为宿主 peer，并同时覆盖 0.1.0-rc.6 与 0.1.0-rc.7");
+  }
 
   return failures;
 }
