@@ -51,6 +51,9 @@ function createRepository() {
       bugs: { url: "https://github.com/oil-oil/dsh-oil-creator/issues" },
       homepage: "https://github.com/oil-oil/dsh-oil-creator#readme",
       packageManager: "pnpm@10.16.1",
+      peerDependencies: {
+        "@deepseek-ai/dsh-tools": "0.1.0-rc.6 || 0.1.0-rc.7",
+      },
       main: "./lib/index.js",
       exports: { ".": "./lib/index.js" },
       files: [
@@ -161,6 +164,25 @@ describe("release:check", () => {
     }
   });
 
+  it("rejects a runtime dependency on the host tool package", () => {
+    const repository = createRepository();
+    try {
+      const manifestPath = join(repository, "package.json");
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+        dependencies?: Record<string, string>;
+      };
+      manifest.dependencies = { "@deepseek-ai/dsh-tools": "0.1.0-rc.6 || 0.1.0-rc.7" };
+      writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+      git(repository, "add", "--", "package.json");
+      git(repository, "commit", "-qm", "nest tool runtime");
+      const result = runReleaseCheck(repository);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain("@deepseek-ai/dsh-tools 不能作为运行依赖");
+    } finally {
+      rmSync(repository, { recursive: true, force: true });
+    }
+  });
+
   it("rejects missing origin and missing files", () => {
     const noOrigin = createRepository();
     const missing = createRepository();
@@ -189,5 +211,5 @@ describe("release:check", () => {
     } finally {
       rmSync(repository, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 });
